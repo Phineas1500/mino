@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Upload, Loader2 } from "lucide-react"
 
-const PI_SERVER = 'http://localhost:3001';
+const PI_SERVER = 'http://100.70.34.122:3001';
 
 /* Added props interface for FileUpload */
 interface FileUploadProps {

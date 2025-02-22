@@ -6,7 +6,7 @@ import { compressVideo, shouldCompress, formatBytes } from "./videoCompressor"
 
 const PI_SERVER = 'http://100.70.34.122:3001';
 
-type ProgressStatus = 'idle' | 'compressing' | 'uploading' | 'processing' | 'done' | 'error';
+type ProgressStatus = 'idle' | 'analyzing' | 'compressing' | 'uploading' | 'processing' | 'done' | 'error';
 
 interface Progress {
   status: ProgressStatus;
@@ -14,7 +14,12 @@ interface Progress {
   details?: string;
 }
 
-export function FileUpload() {
+interface FileUploadProps {
+  onFileSelect?: (file: File) => void;
+  accept?: string;
+}
+
+export function FileUpload({ onFileSelect, accept = "video/*" }: FileUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [processedUrl, setProcessedUrl] = useState<string | null>(null)
@@ -28,6 +33,12 @@ export function FileUpload() {
     const selectedFile = e.target.files?.[0]
     if (!selectedFile) return
 
+    // If onFileSelect prop is provided, use it and bypass default upload
+    if (onFileSelect) {
+      onFileSelect(selectedFile)
+      return
+    }
+
     setFile(selectedFile)
     setUploading(true)
     setUploadGlow(true)
@@ -35,7 +46,7 @@ export function FileUpload() {
     try {
       // Show original file size
       setProgress({ 
-        status: 'compressing', 
+        status: 'analyzing', 
         message: 'Analyzing video...',
         details: `Original size: ${formatBytes(selectedFile.size)}`
       })
@@ -140,7 +151,7 @@ export function FileUpload() {
           type="file"
           id="video-upload"
           className="hidden"
-          accept="video/*"
+          accept={accept}
           onChange={handleUpload}
           disabled={uploading}
         />
@@ -148,7 +159,7 @@ export function FileUpload() {
           htmlFor="video-upload"
           className="flex flex-col items-center cursor-pointer"
         >
-          {progress.status === 'uploading' || progress.status === 'processing' || progress.status === 'compressing' ? (
+          {progress.status === 'uploading' || progress.status === 'processing' || progress.status === 'compressing' || progress.status === 'analyzing' ? (
             <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" />
           ) : (
             <Upload className="w-8 h-8 mb-4 text-muted-foreground" />

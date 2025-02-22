@@ -29,10 +29,14 @@ export function FileUpload() {
       const response = await fetch(`${PI_SERVER}/upload`, {
         method: 'POST',
         body: formData,
+        headers: {
+          'Accept': 'application/json',
+        },
+        credentials: 'omit'  // Change from 'include' to 'omit'
       })
 
       if (!response.ok) {
-        throw new Error('Upload failed')
+        throw new Error(`Upload failed: ${response.statusText}`)
       }
 
       const data = await response.json()

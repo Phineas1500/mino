@@ -2,7 +2,7 @@
 "use client"
 
 import { useState } from "react"
-import { Upload } from "lucide-react"
+import { Upload, Loader2 } from "lucide-react"
 
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null)
@@ -81,7 +81,10 @@ export function FileUpload() {
         <span className="text-base mb-1">
           {progress.status === 'idle' 
             ? "Drop your lecture video here"
-            : progress.message}
+            : (progress.status === 'uploading' || progress.status === 'processing')
+              ? <Loader2 className="w-8 h-8 animate-spin" />
+              : progress.message
+          }
         </span>
         <span className="text-sm text-muted-foreground">
           MP4, WebM, or MOV up to 2GB

@@ -5,7 +5,14 @@ import { Upload, Loader2 } from "lucide-react"
 
 const PI_SERVER = 'http://100.70.34.122:3001';
 
-export function FileUpload() {
+/* Added props interface for FileUpload */
+interface FileUploadProps {
+  onFileSelect?: (file: File) => void;
+  accept?: string;
+}
+
+// Modified function signature to accept props
+export function FileUpload({ onFileSelect, accept = "video/*" }: FileUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [processedUrl, setProcessedUrl] = useState<string | null>(null)
@@ -19,6 +26,12 @@ export function FileUpload() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    // If onFileSelect prop is provided, use it and bypass default upload
+    if (onFileSelect) {
+      onFileSelect(file)
+      return
+    }
 
     setFile(file)
     setUploading(true)
@@ -87,7 +100,7 @@ export function FileUpload() {
           type="file"
           id="video-upload"
           className="hidden"
-          accept="video/*"
+          accept={accept}
           onChange={handleUpload}
           disabled={uploading}
         />

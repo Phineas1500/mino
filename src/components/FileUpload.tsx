@@ -12,23 +12,32 @@ export function FileUpload() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
+  
     setFile(file)
     setUploading(true)
-
+  
     try {
-      // TODO: Implement file upload and processing
-      // 1. Upload to temporary storage
-      // 2. Process with AI
-      // 3. Return results
-      console.log("File selected:", file.name)
+      const formData = new FormData()
+      formData.append('file', file)
+  
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+  
+      if (!response.ok) {
+        throw new Error('Upload failed')
+      }
+  
+      const data = await response.json()
+      console.log('Upload successful:', data)
     } catch (error) {
-      console.error("Upload failed:", error)
+      console.error('Upload failed:', error)
     } finally {
       setUploading(false)
     }
   }
-
+  
   return (
     <div className="border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8">
       <input

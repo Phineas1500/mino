@@ -13,6 +13,8 @@ export function FileUpload() {
     status: 'idle' | 'uploading' | 'processing' | 'done' | 'error'
     message: string
   }>({ status: 'idle', message: '' })
+  const [uploadGlow, setUploadGlow] = useState(false)
+
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -20,6 +22,7 @@ export function FileUpload() {
 
     setFile(file)
     setUploading(true)
+    setUploadGlow(true)
     setProgress({ status: 'uploading', message: 'Uploading video...' })
 
     try {
@@ -67,12 +70,19 @@ export function FileUpload() {
       })
     } finally {
       setUploading(false)
+      setTimeout(() => setUploadGlow(false), 1000)
     }
   }
 
   return (
     <div className="flex flex-col items-center gap-8">
-      <div className="border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8">
+
+      {uploadGlow && (
+          <div className="absolute inset-0 flex items-center justify-center -z-10 pointer-events-none">
+            <div className="w-[500%] h-[150%] rounded-full bg-blue-300/30 blur-3xl scale-0 animate-[glow_1s_ease-out]"></div>
+          </div>
+      )}
+      <div className="relative w-full max-w-4xl bg-black aspect-[36/9] border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8" >
         <input
           type="file"
           id="video-upload"

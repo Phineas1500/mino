@@ -3,16 +3,17 @@
 import { useState } from "react"
 import { Upload, Loader2 } from "lucide-react"
 
-const PI_SERVER = 'http://100.70.34.122:3001';
+const PI_SERVER = 'http://localhost:3001';
 
 /* Added props interface for FileUpload */
 interface FileUploadProps {
   onFileSelect?: (file: File) => void;
+  onProcessingComplete?: (data: any) => void;  // Add new prop for handling transcript data
   accept?: string;
 }
 
 // Modified function signature to accept props
-export function FileUpload({ onFileSelect, accept = "video/*" }: FileUploadProps) {
+export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video/*" }: FileUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [processedUrl, setProcessedUrl] = useState<string | null>(null)
@@ -27,11 +28,13 @@ export function FileUpload({ onFileSelect, accept = "video/*" }: FileUploadProps
     const file = e.target.files?.[0]
     if (!file) return
 
-    // If onFileSelect prop is provided, use it and bypass default upload
-    if (onFileSelect) {
-      onFileSelect(file)
-      return
-    }
+    console.log('Starting upload process for file:', file.name);
+
+    // Comment out the onFileSelect bypass for now to ensure we're testing the upload
+    // if (onFileSelect) {
+    //   onFileSelect(file)
+    //   return
+    // }
 
     setFile(file)
     setUploading(true)
@@ -39,39 +42,43 @@ export function FileUpload({ onFileSelect, accept = "video/*" }: FileUploadProps
     setProgress({ status: 'uploading', message: 'Uploading video...' })
 
     try {
+      console.log('Creating form data...');
       const formData = new FormData()
       formData.append('video', file)
 
+      console.log('Sending request to:', `${PI_SERVER}/upload`);
       const response = await fetch(`${PI_SERVER}/upload`, {
         method: 'POST',
         body: formData,
         headers: {
           'Accept': 'application/json',
         },
-        credentials: 'omit'  // Change from 'include' to 'omit'
+        credentials: 'omit'
       })
 
-      if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`)
-      }
-
+      console.log('Response status:', response.status);
       const data = await response.json()
+      console.log('Response data:', data);
       
       if (data.success) {
         setProcessedUrl(data.url)
         setProgress({ 
           status: 'processing', 
-          message: 'Video uploaded successfully! Processing...' 
+          message: 'Video uploaded successfully! Processing transcript...' 
         })
         
-        // Here you could set up a polling mechanism to check processing status
-        // For now, we'll just show a success message after a delay
-        setTimeout(() => {
-          setProgress({ 
-            status: 'done', 
-            message: 'Video processed successfully! Ready to play.' 
-          })
-        }, 2000)
+        // Store video URL in sessionStorage
+        sessionStorage.setItem("videoUrl", data.url);
+        
+        // If we have transcript data and the callback, use it
+        if (data.data && onProcessingComplete) {
+          onProcessingComplete(data.data);
+        }
+        
+        setProgress({ 
+          status: 'done', 
+          message: 'Video processed successfully! Ready to play.' 
+        })
       } else {
         throw new Error(data.error || 'Upload failed')
       }

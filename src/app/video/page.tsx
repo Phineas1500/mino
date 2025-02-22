@@ -4,67 +4,145 @@ import { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Roboto_Mono } from "next/font/google";
 
+interface Segment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+// interface Flashcard {
+//   question: string;
+//   answer: string;
+// }
+
+interface LessonData {
+  // summary: string;
+  // keyPoints: string[];
+  // flashcards: Flashcard[];
+  transcript: string;
+  // segments: Segment[];
+}
+
 const robotoMono = Roboto_Mono({
   weight: ['400', '500'],
   subsets: ['latin'],
 });
 
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center py-8">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+  </div>
+);
+
+const LoadingPulse = () => (
+  <div className="space-y-3">
+    <div className="h-4 bg-gray-700 rounded animate-pulse"></div>
+    <div className="h-4 bg-gray-700 rounded animate-pulse w-5/6"></div>
+    <div className="h-4 bg-gray-700 rounded animate-pulse w-4/6"></div>
+  </div>
+);
+
 export default function VideoPage() {
   const [videoUrl, setVideoUrl] = useState("");
-  const [currentFlashcard, setCurrentFlashcard] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
-
-  // Sample data - in a real app, this would come from your backend
-  const sampleData = {
-    summary: "This video covers the fundamental concepts of React hooks, including useState and useEffect. It demonstrates how these hooks can be used to manage state and side effects in functional components.",
-    keyPoints: [
-      "useState is used for managing component state",
-      "useEffect handles side effects and lifecycle events",
-      "Hooks can only be used in functional components",
-      "Multiple state variables can be managed independently"
-    ],
-    flashcards: [
-      {
-        question: "What is useState used for?",
-        answer: "useState is a Hook that lets you add state to functional components"
-      },
-      {
-        question: "When does useEffect run?",
-        answer: "useEffect runs after every render, but can be configured to run only when specific dependencies change"
-      },
-      {
-        question: "Can hooks be used in class components?",
-        answer: "No, hooks can only be used in functional components"
-      }
-    ],
-    transcript: `
-      In today's video, we'll be diving deep into React hooks.
-      First, let's talk about useState. useState is one of the most fundamental hooks...
-      Next, we'll look at useEffect. This hook is crucial for handling side effects...
-      Finally, we'll see how these hooks work together in a real application...
-    `
-  };
+  // const [currentFlashcard, setCurrentFlashcard] = useState(0);
+  // const [showAnswer, setShowAnswer] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [lessonData, setLessonData] = useState<LessonData>({
+    // summary: "",
+    // keyPoints: [],
+    // flashcards: [{
+    //   question: "Loading...",
+    //   answer: "Loading..."
+    // }],
+    transcript: "",
+    // segments: []
+  });
 
   useEffect(() => {
     const storedUrl = sessionStorage.getItem("videoUrl");
+    const storedLessonData = sessionStorage.getItem("lessonData");
+    
     if (storedUrl) {
       setVideoUrl(storedUrl);
     }
+    
+    if (storedLessonData) {
+      try {
+        const parsedData = JSON.parse(storedLessonData);
+        setLessonData(parsedData);
+      } catch (error) {
+        console.error('Error parsing lesson data:', error);
+      }
+    }
   }, []);
 
-  const nextFlashcard = () => {
-    setCurrentFlashcard((prev) => 
-      prev === sampleData.flashcards.length - 1 ? 0 : prev + 1
-    );
-    setShowAnswer(false);
+  // New function to handle incoming transcript data
+  const handleTranscriptUpdate = async (data: any) => {
+    try {
+      const response = await fetch('/api/transcript', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+      });
+      
+      if (!response.ok) throw new Error('Failed to process transcript');
+      
+      const result = await response.json();
+      if (result.success) {
+        setLessonData(result.data);
+      }
+    } catch (error) {
+      console.error('Error updating transcript:', error);
+    }
   };
 
-  const prevFlashcard = () => {
-    setCurrentFlashcard((prev) => 
-      prev === 0 ? sampleData.flashcards.length - 1 : prev - 1
-    );
-    setShowAnswer(false);
+  // Update the test connection function
+  const testBackendConnection = async () => {
+    try {
+      setIsProcessing(true);
+      setConnectionStatus("Testing connection...");
+      const response = await fetch('http://localhost:3001/api/transcript/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to connect to backend');
+      
+      const result = await response.json();
+      if (result.success) {
+        setConnectionStatus("✅ Backend connected successfully!");
+        setLessonData(result.data);
+      } else {
+        setConnectionStatus("❌ Backend connection failed: " + result.error);
+      }
+    } catch (error: any) {
+      console.error('Error testing connection:', error);
+      setConnectionStatus("❌ Backend connection failed: " + error.message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
+
+  // const nextFlashcard = () => {
+  //   if (!lessonData.flashcards.length) return;
+  //   setCurrentFlashcard((prev) => 
+  //     prev === lessonData.flashcards.length - 1 ? 0 : prev + 1
+  //   );
+  //   setShowAnswer(false);
+  // };
+
+  // const prevFlashcard = () => {
+  //   if (!lessonData.flashcards.length) return;
+  //   setCurrentFlashcard((prev) => 
+  //     prev === 0 ? lessonData.flashcards.length - 1 : prev - 1
+  //   );
+  //   setShowAnswer(false);
+  // };
 
   if (!videoUrl) {
     return <div className="p-6">No video to display.</div>;
@@ -80,10 +158,23 @@ export default function VideoPage() {
           <div className="text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">)</div>
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            <h1 className="text-3xl font-bold">Video Lesson</h1>
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h1 className="text-3xl font-bold">Video Lesson</h1>
+              <button
+                onClick={testBackendConnection}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Test Backend Connection
+              </button>
+            </div>
+            {connectionStatus && (
+              <div className={`p-4 rounded-lg ${connectionStatus.includes("✅") ? "bg-green-800" : "bg-red-800"} text-white`}>
+                {connectionStatus}
+              </div>
+            )}
             
             {/* Video Player */}
             <div className="rounded-lg overflow-hidden bg-black">
@@ -94,72 +185,17 @@ export default function VideoPage() {
               />
             </div>
 
-            {/* Flashcard Section */}
-            <div className="bg-gray-800 shadow rounded-lg relative">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold mb-4 text-white">Flashcards</h2>
-                <div className="flex items-center justify-between">
-                  <button 
-                    onClick={prevFlashcard}
-                    className="p-2 hover:bg-gray-700 rounded-full"
-                  >
-                    <ChevronLeft className="w-6 h-6 text-white" />
-                  </button>
-                  
-                  <div className="text-center flex-1 mx-4">
-                    <div 
-                      className="cursor-pointer p-4 min-h-32 text-white"
-                      onClick={() => setShowAnswer(!showAnswer)}
-                    >
-                      {showAnswer 
-                        ? sampleData.flashcards[currentFlashcard].answer
-                        : sampleData.flashcards[currentFlashcard].question}
-                    </div>
-                    <div className="text-sm text-gray-400">
-                      Click to {showAnswer ? 'show question' : 'reveal answer'}
-                    </div>
-                  </div>
-
-                  <button 
-                    onClick={nextFlashcard}
-                    className="p-2 hover:bg-gray-700 rounded-full"
-                  >
-                    <ChevronRight className="w-6 h-6 text-white" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
             {/* Transcript */}
             <div className="bg-gray-800 shadow rounded-lg">
               <div className="p-6">
                 <h2 className="text-xl font-semibold mb-4 text-white">Transcript</h2>
-                <div className="whitespace-pre-line text-gray-300">
-                  {sampleData.transcript}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sidebar */}
-          <div className="space-y-6">
-            {/* Summary */}
-            <div className="bg-gray-800 shadow rounded-lg">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold mb-4 text-white">Summary</h2>
-                <p className="text-gray-300">{sampleData.summary}</p>
-              </div>
-            </div>
-
-            {/* Key Points */}
-            <div className="bg-gray-800 shadow rounded-lg">
-              <div className="p-6">
-                <h2 className="text-xl font-semibold mb-4 text-white">Key Points</h2>
-                <ul className="list-disc pl-4 space-y-2">
-                  {sampleData.keyPoints.map((point, index) => (
-                    <li key={index} className="text-gray-300">{point}</li>
-                  ))}
-                </ul>
+                {isProcessing ? (
+                  <LoadingPulse />
+                ) : (
+                  <div className="text-gray-300">
+                    {lessonData.transcript || "No transcript available"}
+                  </div>
+                )}
               </div>
             </div>
           </div>

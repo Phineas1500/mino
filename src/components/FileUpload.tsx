@@ -1,7 +1,9 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { Upload } from 'lucide-react'
+import type React from "react"
+
+import { useState } from "react"
+import { Upload } from "lucide-react"
 
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null)
@@ -19,16 +21,16 @@ export function FileUpload() {
       // 1. Upload to temporary storage
       // 2. Process with AI
       // 3. Return results
-      console.log('File selected:', file.name)
+      console.log("File selected:", file.name)
     } catch (error) {
-      console.error('Upload failed:', error)
+      console.error("Upload failed:", error)
     } finally {
       setUploading(false)
     }
   }
 
   return (
-    <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+    <div className="border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8">
       <input
         type="file"
         id="video-upload"
@@ -37,23 +39,13 @@ export function FileUpload() {
         onChange={handleUpload}
         disabled={uploading}
       />
-      <label
-        htmlFor="video-upload"
-        className="flex flex-col items-center cursor-pointer"
-      >
-        <Upload className="w-12 h-12 mb-4 text-gray-500" />
-        <span className="text-lg mb-2">
-          {uploading ? 'Uploading...' : 'Upload your lecture video'}
-        </span>
-        <span className="text-sm text-gray-500">
-          MP4, WebM, or MOV up to 2GB
-        </span>
+      <label htmlFor="video-upload" className="flex flex-col items-center cursor-pointer">
+        <Upload className="w-8 h-8 mb-4 text-muted-foreground" />
+        <span className="text-base mb-1">{uploading ? "Uploading..." : "Drop your lecture video here"}</span>
+        <span className="text-sm text-muted-foreground">MP4, WebM, or MOV up to 2GB</span>
       </label>
-      {file && (
-        <div className="mt-4 text-sm text-gray-600">
-          Selected: {file.name}
-        </div>
-      )}
+      {file && <div className="mt-4 text-sm text-muted-foreground">Selected: {file.name}</div>}
     </div>
   )
 }
+

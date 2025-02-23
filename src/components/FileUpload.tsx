@@ -3,16 +3,12 @@
 import { useState } from "react"
 import { Upload, Loader2 } from "lucide-react"
 
-const PI_SERVER = 'http://100.70.34.122:3001';
-
-/* Added props interface for FileUpload */
 interface FileUploadProps {
   onFileSelect?: (file: File) => void;
-  onProcessingComplete?: (data: any) => void;  // Add new prop for handling transcript data
+  onProcessingComplete?: (data: any) => void;
   accept?: string;
 }
 
-// Modified function signature to accept props
 export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video/*" }: FileUploadProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -23,67 +19,97 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   }>({ status: 'idle', message: '' })
   const [uploadGlow, setUploadGlow] = useState(false)
 
-
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
-    console.log('Starting upload process for file:', file.name);
-
-    // Comment out the onFileSelect bypass for now to ensure we're testing the upload
-    // if (onFileSelect) {
-    //   onFileSelect(file)
-    //   return
-    // }
-
+  
     setFile(file)
     setUploading(true)
     setUploadGlow(true)
-    setProgress({ status: 'uploading', message: 'Uploading video...' })
-
+    setProgress({ status: 'uploading', message: 'Getting upload URL...' })
+  
     try {
-      console.log('Creating form data...');
-      const formData = new FormData()
-      formData.append('video', file)
-
-      console.log('Sending request to:', `${PI_SERVER}/upload`);
-      const response = await fetch(`${PI_SERVER}/upload`, {
+      // Step 1: Get presigned URL from Pi
+      const urlResponse = await fetch('/api/s3/presigned', {
         method: 'POST',
-        body: formData,
         headers: {
-          'Accept': 'application/json',
+          'Content-Type': 'application/json',
         },
-        credentials: 'omit'
-      })
-
-      console.log('Response status:', response.status);
-      const data = await response.json()
-      console.log('Response data:', data);
-      
-      if (data.success) {
-        setProcessedUrl(data.url)
-        setProgress({ 
-          status: 'processing', 
-          message: 'Video uploaded successfully! Processing transcript...' 
+        body: JSON.stringify({
+          fileName: file.name,
+          fileType: file.type
         })
+      })
+  
+      if (!urlResponse.ok) {
+        throw new Error('Failed to get upload URL')
+      }
+  
+      const { url, fields } = await urlResponse.json()
+      console.log('Received presigned URL:', url)
+      console.log('Fields:', fields)
+      
+      setProgress({ status: 'uploading', message: 'Uploading to S3...' })
+  
+      // Step 2: Upload to S3 using PUT
+      const uploadResponse = await fetch(url, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': file.type
+        }
+      })
+  
+      if (!uploadResponse.ok) {
+        const errorText = await uploadResponse.text()
+        console.error('S3 upload failed:', {
+          status: uploadResponse.status,
+          statusText: uploadResponse.statusText,
+          errorText
+        })
+        throw new Error(`Failed to upload to S3: ${uploadResponse.statusText}`)
+      }
+  
+      // Step 3: Notify Pi that upload is complete
+      setProgress({ status: 'processing', message: 'Processing video...' })
+      const processResponse = await fetch('/api/process-video', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          fileKey: fields.key
+        })
+      })
+  
+      if (!processResponse.ok) {
+        throw new Error('Failed to process video')
+      }
+  
+      const processResult = await processResponse.json()
+      
+      if (processResult.success) {
+        console.log('Received video URL:', processResult.url)
+        sessionStorage.setItem("videoUrl", processResult.url)
         
-        // Store video URL in sessionStorage
-        sessionStorage.setItem("videoUrl", data.url);
-        
-        // If we have transcript data and the callback, use it
-        if (data.data && onProcessingComplete) {
-          onProcessingComplete(data.data);
+        if (processResult.data) {
+          sessionStorage.setItem("lessonData", JSON.stringify(processResult.data))
+          if (onProcessingComplete) {
+            onProcessingComplete(processResult.data)
+          }
         }
         
-        setProgress({ 
-          status: 'done', 
-          message: 'Video processed successfully! Ready to play.' 
-        })
+        setProcessedUrl(processResult.url)
+        setProgress({ status: 'done', message: 'Video processed successfully!' })
+        
+        // Navigate to video page
+        window.location.href = '/video'
       } else {
-        throw new Error(data.error || 'Upload failed')
+        throw new Error(processResult.error || 'Processing failed')
       }
     } catch (error) {
-      console.error('Upload failed:', error)
+      console.error('Upload/processing failed:', error)
       setProgress({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Upload failed' 
@@ -92,7 +118,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       setUploading(false)
       setTimeout(() => setUploadGlow(false), 1000)
     }
-  }
+  }  
 
   return (
     <div className="flex flex-col items-center gap-8">

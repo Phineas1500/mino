@@ -23,34 +23,6 @@ interface LessonData {
   segments: Segment[];
 }
 
-// Sample test data
-const sampleLessonData: LessonData = {
-  summary: "The lecture on artificial intelligence covers the fundamentals of machine learning, emphasizing supervised and unsupervised learning. Additionally, it delves into key concepts such as neural networks, deep learning, and their practical applications. The ethical considerations surrounding AI and its societal impact are also explored.",
-  keyPoints: [
-    "The lecture focuses on the fundamentals of machine learning, particularly supervised and unsupervised learning.",
-    "Key concepts discussed include neural networks, deep learning, and their real-world applications.",
-    "Ethical implications of AI and its effects on society are examined during the lecture.",
-    "The importance of understanding neural networks and deep learning in the context of artificial intelligence is highlighted.",
-    "The lecture underscores the significance of considering the societal impact of AI developments."
-  ],
-  flashcards: [
-    {
-      question: "What are the main types of machine learning discussed in the lecture?",
-      answer: "The main types discussed are supervised and unsupervised learning."
-    },
-    {
-      question: "What ethical considerations are explored in relation to artificial intelligence?",
-      answer: "The lecture explores the ethical implications of AI and its societal impact."
-    },
-    {
-      question: "Why is it important to understand neural networks and deep learning in the context of artificial intelligence?",
-      answer: "Understanding neural networks and deep learning is crucial for leveraging AI effectively in various applications."
-    }
-  ],
-  transcript: "This is a test lecture about artificial intelligence. We discuss the fundamentals of machine learning, including supervised and unsupervised learning. The lecture covers basic concepts like neural networks, deep learning, and their applications in real-world scenarios. We also explore the ethical implications of AI and its impact on society.",
-  segments: []
-};
-
 const defaultLessonData: LessonData = {
   summary: "",
   keyPoints: [],
@@ -79,34 +51,56 @@ const LoadingPulse = () => (
 );
 
 export default function VideoPage() {
-  const [videoUrl, setVideoUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [currentFlashcard, setCurrentFlashcard] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [lessonData, setLessonData] = useState<LessonData>(sampleLessonData);
+  const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData);
 
   useEffect(() => {
-    const storedUrl = sessionStorage.getItem("videoUrl");
-    const storedLessonData = sessionStorage.getItem("lessonData");
-    
-    if (storedUrl) {
-      setVideoUrl(storedUrl);
-    } else {
-      setVideoUrl("https://example.com/sample-video.mp4"); // Set sample video URL if none stored
-    }
-    
-    if (storedLessonData) {
+    // Load video URL and lesson data from session storage
+    const loadData = () => {
       try {
-        const parsedData = JSON.parse(storedLessonData);
-        setLessonData(parsedData);
+        const storedUrl = sessionStorage.getItem("videoUrl");
+        console.log("Loaded URL from session storage:", storedUrl);
+        
+        if (storedUrl) {
+          setVideoUrl(storedUrl);
+        }
+
+        const storedLessonData = sessionStorage.getItem("lessonData");
+        if (storedLessonData) {
+          const parsedData = JSON.parse(storedLessonData);
+          setLessonData(parsedData);
+        }
       } catch (error) {
-        console.error('Error parsing lesson data:', error);
-        setLessonData(sampleLessonData); // Fallback to sample data if parsing fails
+        console.error('Error loading data from session storage:', error);
       }
-    }
+    };
+
+    loadData();
+
+    // Add storage event listener to handle updates
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === "videoUrl") {
+        console.log("Video URL updated in storage:", event.newValue);
+        setVideoUrl(event.newValue);
+      } else if (event.key === "lessonData") {
+        try {
+          const newData = event.newValue ? JSON.parse(event.newValue) : null;
+          if (newData) {
+            setLessonData(newData);
+          }
+        } catch (error) {
+          console.error('Error parsing updated lesson data:', error);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // Updated function to handle incoming transcript data
   const handleTranscriptUpdate = async (data: any) => {
     try {
       setIsProcessing(true);
@@ -148,23 +142,9 @@ export default function VideoPage() {
         
         sessionStorage.setItem("lessonData", JSON.stringify(processedData));
         setLessonData(processedData);
-      } else {
-        throw new Error(result.error || 'Processing failed');
       }
     } catch (error) {
       console.error('Error updating transcript:', error);
-      // Set default data on error
-      const errorData: LessonData = {
-        summary: "Error processing transcript",
-        keyPoints: ["Error processing key points"],
-        flashcards: [{
-          question: "Error processing flashcards",
-          answer: "Please try again"
-        }],
-        transcript: data.transcript || "",
-        segments: data.segments || []
-      };
-      setLessonData(errorData);
     } finally {
       setIsProcessing(false);
     }
@@ -187,7 +167,12 @@ export default function VideoPage() {
   };
 
   if (!videoUrl) {
-    return <div className="p-6">No video to display.</div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen p-6">
+        <div className="text-xl text-gray-400 mb-4">No video to display</div>
+        <div className="text-sm text-gray-500">Upload a video first</div>
+      </div>
+    );
   }
 
   return (
@@ -213,6 +198,7 @@ export default function VideoPage() {
                 src={videoUrl} 
                 controls 
                 className="w-full aspect-video"
+                onError={(e) => console.error('Video error:', e)}
               />
             </div>
 
@@ -223,7 +209,7 @@ export default function VideoPage() {
                 <LoadingPulse />
               ) : (
                 <div className="text-gray-300">
-                  {lessonData?.summary}
+                  {lessonData?.summary || "No summary available"}
                 </div>
               )}
             </div>
@@ -301,12 +287,10 @@ export default function VideoPage() {
                 <h2 className="text-xl font-semibold mb-4 text-white">Transcript</h2>
                 {isProcessing ? (
                   <LoadingPulse />
-                ) : lessonData?.transcript ? (
-                  <div className="text-gray-300 whitespace-pre-wrap">
-                    {lessonData.transcript}
-                  </div>
                 ) : (
-                  <div className="text-gray-400">No transcript available</div>
+                  <div className="text-gray-300 whitespace-pre-wrap">
+                    {lessonData.transcript || "No transcript available"}
+                  </div>
                 )}
               </div>
             </div>

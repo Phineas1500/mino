@@ -394,6 +394,7 @@ export default function VideoPage() {
     )
     setShowAnswer(false)
   }
+  
 
   if (!originalVideo.url && !turboVideo.url) {
     return (

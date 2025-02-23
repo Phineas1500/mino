@@ -1,26 +1,27 @@
-"use client";
+"use client"
 
-import { useState, useEffect, useRef } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Roboto_Mono } from "next/font/google";
+import { useState, useEffect, useRef } from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { Roboto_Mono } from "next/font/google"
+import { Maximize2, Minimize2 } from "lucide-react"
 
 interface Segment {
-  start: number;
-  end: number;
-  text: string;
+  start: number
+  end: number
+  text: string
 }
 
 interface Flashcard {
-  question: string;
-  answer: string;
+  question: string
+  answer: string
 }
 
 interface LessonData {
-  summary: string;
-  keyPoints: string[];
-  flashcards: Flashcard[];
-  transcript: string;
-  segments: Segment[];
+  summary: string
+  keyPoints: string[]
+  flashcards: Flashcard[]
+  transcript: string
+  segments: Segment[]
 }
 
 const defaultLessonData: LessonData = {
@@ -28,99 +29,100 @@ const defaultLessonData: LessonData = {
   keyPoints: [],
   flashcards: [],
   transcript: "",
-  segments: []
-};
+  segments: [],
+}
 
 const robotoMono = Roboto_Mono({
-  weight: ['400', '500'],
-  subsets: ['latin'],
-});
+  weight: ["400", "500"],
+  subsets: ["latin"],
+})
 
 const LoadingSpinner = () => (
   <div className="flex items-center justify-center py-8">
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
   </div>
-);
+)
 
 const LoadingPulse = () => (
   <div className="space-y-3">
-    <div className="h-4 bg-gray-700 rounded animate-pulse"></div>
-    <div className="h-4 bg-gray-700 rounded animate-pulse w-5/6"></div>
-    <div className="h-4 bg-gray-700 rounded animate-pulse w-4/6"></div>
+    <div className="h-4 bg-zinc-700 rounded animate-pulse"></div>
+    <div className="h-4 bg-zinc-700 rounded animate-pulse w-5/6"></div>
+    <div className="h-4 bg-zinc-700 rounded animate-pulse w-4/6"></div>
   </div>
-);
+)
 
 function formatTimestamp(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = Math.floor(seconds % 60)
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`
 }
 
 export default function VideoPage() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [currentFlashcard, setCurrentFlashcard] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData);
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [currentFlashcard, setCurrentFlashcard] = useState(0)
+  const [showAnswer, setShowAnswer] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData)
+  const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false)
 
   useEffect(() => {
     // Load video URL and lesson data from session storage
     const loadData = () => {
       try {
-        const storedUrl = sessionStorage.getItem("videoUrl");
-        console.log("Loaded URL from session storage:", storedUrl);
-        
+        const storedUrl = sessionStorage.getItem("videoUrl")
+        console.log("Loaded URL from session storage:", storedUrl)
+
         if (storedUrl) {
-          setVideoUrl(storedUrl);
+          setVideoUrl(storedUrl)
         }
 
-        const storedLessonData = sessionStorage.getItem("lessonData");
-        console.log("Loaded lesson data from session storage:", storedLessonData);
-        
+        const storedLessonData = sessionStorage.getItem("lessonData")
+        console.log("Loaded lesson data from session storage:", storedLessonData)
+
         if (storedLessonData) {
-          const parsedData = JSON.parse(storedLessonData);
-          console.log("Parsed lesson data:", parsedData);
+          const parsedData = JSON.parse(storedLessonData)
+          console.log("Parsed lesson data:", parsedData)
           setLessonData({
             summary: parsedData.summary || "",
             keyPoints: parsedData.keyPoints || [],
             flashcards: parsedData.flashcards || [],
             transcript: parsedData.transcript || "",
-            segments: parsedData.segments || []
-          });
+            segments: parsedData.segments || [],
+          })
         }
       } catch (error) {
-        console.error('Error loading data from session storage:', error);
+        console.error("Error loading data from session storage:", error)
       }
-    };
+    }
 
-    loadData();
+    loadData()
 
     // Add storage event listener to handle updates
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === "videoUrl") {
-        console.log("Video URL updated in storage:", event.newValue);
-        setVideoUrl(event.newValue);
+        console.log("Video URL updated in storage:", event.newValue)
+        setVideoUrl(event.newValue)
       } else if (event.key === "lessonData") {
         try {
-          const newData = event.newValue ? JSON.parse(event.newValue) : null;
+          const newData = event.newValue ? JSON.parse(event.newValue) : null
           if (newData) {
-            setLessonData(newData);
+            setLessonData(newData)
           }
         } catch (error) {
-          console.error('Error parsing updated lesson data:', error);
+          console.error("Error parsing updated lesson data:", error)
         }
       }
-    };
+    }
 
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+    window.addEventListener("storage", handleStorageChange)
+    return () => window.removeEventListener("storage", handleStorageChange)
+  }, [])
 
   const handleTranscriptUpdate = async (data: any) => {
     try {
-      setIsProcessing(true);
-      
+      setIsProcessing(true)
+
       // If we already have processed data in the response
       if (data.summary && data.keyPoints && data.flashcards) {
         const processedData: LessonData = {
@@ -128,66 +130,62 @@ export default function VideoPage() {
           keyPoints: data.keyPoints,
           flashcards: data.flashcards,
           transcript: data.transcript,
-          segments: data.segments || []
-        };
-        sessionStorage.setItem("lessonData", JSON.stringify(processedData));
-        setLessonData(processedData);
-        return;
+          segments: data.segments || [],
+        }
+        sessionStorage.setItem("lessonData", JSON.stringify(processedData))
+        setLessonData(processedData)
+        return
       }
 
       // If we need to process the transcript
-      const response = await fetch('/api/transcript', {
-        method: 'POST',
+      const response = await fetch("/api/transcript", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ transcript: data.transcript })
-      });
-      
-      if (!response.ok) throw new Error('Failed to process transcript');
-      
-      const result = await response.json();
+        body: JSON.stringify({ transcript: data.transcript }),
+      })
+
+      if (!response.ok) throw new Error("Failed to process transcript")
+
+      const result = await response.json()
       if (result.success && result.data) {
         const processedData: LessonData = {
           summary: result.data.summary || "",
           keyPoints: result.data.keyPoints || [],
           flashcards: result.data.flashcards || [],
           transcript: result.data.transcript || data.transcript || "",
-          segments: result.data.segments || data.segments || []
-        };
-        
-        sessionStorage.setItem("lessonData", JSON.stringify(processedData));
-        setLessonData(processedData);
+          segments: result.data.segments || data.segments || [],
+        }
+
+        sessionStorage.setItem("lessonData", JSON.stringify(processedData))
+        setLessonData(processedData)
       }
     } catch (error) {
-      console.error('Error updating transcript:', error);
+      console.error("Error updating transcript:", error)
     } finally {
-      setIsProcessing(false);
+      setIsProcessing(false)
     }
-  };
+  }
 
   const nextFlashcard = () => {
-    if (!lessonData.flashcards.length) return;
-    setCurrentFlashcard((prev) => 
-      prev === lessonData.flashcards.length - 1 ? 0 : prev + 1
-    );
-    setShowAnswer(false);
-  };
+    if (!lessonData.flashcards.length) return
+    setCurrentFlashcard((prev) => (prev === lessonData.flashcards.length - 1 ? 0 : prev + 1))
+    setShowAnswer(false)
+  }
 
   const prevFlashcard = () => {
-    if (!lessonData.flashcards.length) return;
-    setCurrentFlashcard((prev) => 
-      prev === 0 ? lessonData.flashcards.length - 1 : prev - 1
-    );
-    setShowAnswer(false);
-  };
+    if (!lessonData.flashcards.length) return
+    setCurrentFlashcard((prev) => (prev === 0 ? lessonData.flashcards.length - 1 : prev - 1))
+    setShowAnswer(false)
+  }
 
   const handleTimestampClick = (time: number) => {
     if (videoRef.current) {
-      videoRef.current.currentTime = time;
-      videoRef.current.play();
+      videoRef.current.currentTime = time
+      videoRef.current.play()
     }
-  };
+  }
 
   if (!videoUrl) {
     return (
@@ -195,7 +193,7 @@ export default function VideoPage() {
         <div className="text-xl text-gray-400 mb-4">No video to display</div>
         <div className="text-sm text-gray-500">Upload a video first</div>
       </div>
-    );
+    )
   }
 
   return (
@@ -207,43 +205,41 @@ export default function VideoPage() {
           <div className="text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">(</div>
           <div className="text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">)</div>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold">Video Lesson</h1>
             </div>
-            
+
             {/* Video Player */}
             <div className="rounded-lg overflow-hidden bg-black">
-              <video 
+              <video
                 ref={videoRef}
-                src={videoUrl} 
-                controls 
+                src={videoUrl}
+                controls
                 className="w-full aspect-video"
-                onError={(e) => console.error('Video error:', e)}
+                onError={(e) => console.error("Video error:", e)}
               />
             </div>
 
             {/* Summary */}
-            <div className="bg-gray-800 shadow rounded-lg p-6">
+            <div className="bg-zinc-800 shadow rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4 text-white">Summary</h2>
               {isProcessing ? (
                 <LoadingPulse />
               ) : (
-                <div className="text-gray-300">
-                  {lessonData?.summary || "No summary available"}
-                </div>
+                <div className="text-gray-300">{lessonData?.summary || "No summary available"}</div>
               )}
             </div>
 
             {/* Key Points */}
-            <div className="bg-gray-800 shadow rounded-lg p-6">
+            <div className="bg-zinc-800 shadow rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4 text-white">Key Points</h2>
               {isProcessing ? (
                 <LoadingPulse />
-              ) : (lessonData?.keyPoints && lessonData.keyPoints.length > 0) ? (
+              ) : lessonData?.keyPoints && lessonData.keyPoints.length > 0 ? (
                 <ul className="list-disc list-inside text-gray-300 space-y-2">
                   {lessonData.keyPoints.map((point, index) => (
                     <li key={index}>{point}</li>
@@ -258,11 +254,15 @@ export default function VideoPage() {
           {/* Right Column */}
           <div className="space-y-6">
             {/* Flashcards */}
-            <div className="bg-gray-800 shadow rounded-lg p-6">
+            <div
+              className={`bg-zinc-800 shadow rounded-lg p-6 transition-all duration-300 ${
+                isTranscriptExpanded ? "hidden" : "block"
+              }`}
+            >
               <h2 className="text-xl font-semibold mb-4 text-white">Flashcards</h2>
               {isProcessing ? (
                 <LoadingPulse />
-              ) : (lessonData?.flashcards && lessonData.flashcards.length > 0) ? (
+              ) : lessonData?.flashcards && lessonData.flashcards.length > 0 ? (
                 <div className="space-y-4">
                   <div className="bg-gray-700 p-6 rounded-lg min-h-[200px] flex flex-col justify-between">
                     <div className="text-gray-300">
@@ -276,10 +276,7 @@ export default function VideoPage() {
                       )}
                     </div>
                     <div className="flex justify-between items-center mt-4">
-                      <button
-                        onClick={prevFlashcard}
-                        className="p-2 text-gray-400 hover:text-white"
-                      >
+                      <button onClick={prevFlashcard} className="p-2 text-gray-400 hover:text-white">
                         <ChevronLeft className="w-6 h-6" />
                       </button>
                       <button
@@ -288,10 +285,7 @@ export default function VideoPage() {
                       >
                         {showAnswer ? "Hide Answer" : "Show Answer"}
                       </button>
-                      <button
-                        onClick={nextFlashcard}
-                        className="p-2 text-gray-400 hover:text-white"
-                      >
+                      <button onClick={nextFlashcard} className="p-2 text-gray-400 hover:text-white">
                         <ChevronRight className="w-6 h-6" />
                       </button>
                     </div>
@@ -306,13 +300,25 @@ export default function VideoPage() {
             </div>
 
             {/* Transcript */}
-            <div className="bg-gray-800 shadow rounded-lg">
+            <div className="bg-zinc-800 shadow rounded-lg">
               <div className="p-6">
-                <h2 className="text-xl font-semibold mb-4 text-white">Transcript</h2>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-semibold text-white">Transcript</h2>
+                  <button
+                    onClick={() => setIsTranscriptExpanded(!isTranscriptExpanded)}
+                    className="p-2 text-gray-400 hover:text-white rounded-lg"
+                  >
+                    {isTranscriptExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                  </button>
+                </div>
                 {isProcessing ? (
                   <LoadingPulse />
                 ) : (
-                  <div className="space-y-4">
+                  <div
+                    className={`space-y-4 overflow-y-auto transition-all duration-300 ${
+                      isTranscriptExpanded ? "h-[calc(100vh-16rem)]" : "h-[400px]"
+                    }`}
+                  >
                     {lessonData.segments.map((segment, index) => (
                       <div key={index} className="group">
                         <button
@@ -332,5 +338,6 @@ export default function VideoPage() {
         </div>
       </div>
     </main>
-  );
+  )
 }
+

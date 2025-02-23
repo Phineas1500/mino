@@ -82,7 +82,7 @@ export default function TestPage() {
           <div>
             <h1 className="text-2xl font-bold mb-4">Test Transcript Processing</h1>
             
-            <div className="mb-6 p-4 bg-gray-800 rounded-lg">
+            <div className="mb-6 p-4 bg-zinc-800 rounded-lg">
               <h2 className="font-semibold mb-2 text-white">Test Transcript:</h2>
               <pre className="whitespace-pre-wrap text-sm text-gray-300">{testTranscript}</pre>
             </div>

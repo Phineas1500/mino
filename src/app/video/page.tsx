@@ -228,6 +228,52 @@ export default function VideoPage() {
     return () => window.removeEventListener('storage', handleStorageChange)
   }, [])
 
+
+
+  // useEffect(() => {
+  //   if (lessonData.segments.length) {
+  //     // Log all the importance scores for each segment.
+  //     const importanceScores = lessonData.segments.map(segment => segment.importance_score);
+  //     console.log("Importance Scores:", importanceScores);
+      
+  //     // You could perform further analytics here.
+  //     // e.g., calculate an average importance score:
+  //     const avgImportance = importanceScores.reduce((acc, score) => acc + score, 0) / importanceScores.length;
+  //     console.log("Average Importance Score:", avgImportance);
+  //   }
+  // }, [lessonData]);
+  useEffect(() => {
+    if (lessonData.segments.length > 0) {
+      const total_segments = lessonData.segments.length;
+      const skippable_segments = lessonData.segments.filter(segment => segment.can_skip).length;
+      const total_duration = lessonData.segments.reduce((sum, segment) => sum + (segment.end - segment.start), 0);
+      const skippable_duration = lessonData.segments.reduce((sum, segment) => 
+        segment.can_skip ? sum + (segment.end - segment.start) : sum, 0);
+      const skippable_percentage = total_duration ? (skippable_duration / total_duration) * 100 : 0;
+  
+      // Only update if stats have changed to avoid infinite loops.
+      if (
+        lessonData.stats.total_segments !== total_segments ||
+        lessonData.stats.skippable_segments !== skippable_segments ||
+        lessonData.stats.total_duration !== total_duration ||
+        lessonData.stats.skippable_duration !== skippable_duration ||
+        lessonData.stats.skippable_percentage !== skippable_percentage
+      ) {
+        setLessonData(prev => ({
+          ...prev,
+          stats: {
+            total_segments,
+            skippable_segments,
+            total_duration,
+            skippable_duration,
+            skippable_percentage
+          }
+        }));
+      }
+    }
+  }, [lessonData.segments]);
+  
+
   const handleVideoError = (type: 'original' | 'shortened', errorMessage: string) => {
     if (type === 'original') {
       setOriginalVideo(prev => ({ ...prev, error: errorMessage }))
@@ -259,6 +305,7 @@ export default function VideoPage() {
     )
     setShowAnswer(false)
   }
+  
 
   if (!originalVideo.url && !shortenedVideo.url) {
     return (

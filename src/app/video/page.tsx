@@ -69,9 +69,18 @@ export default function VideoPage() {
         }
 
         const storedLessonData = sessionStorage.getItem("lessonData");
+        console.log("Loaded lesson data from session storage:", storedLessonData);
+        
         if (storedLessonData) {
           const parsedData = JSON.parse(storedLessonData);
-          setLessonData(parsedData);
+          console.log("Parsed lesson data:", parsedData);
+          setLessonData({
+            summary: parsedData.summary || "",
+            keyPoints: parsedData.keyPoints || [],
+            flashcards: parsedData.flashcards || [],
+            transcript: parsedData.transcript || "",
+            segments: parsedData.segments || []
+          });
         }
       } catch (error) {
         console.error('Error loading data from session storage:', error);

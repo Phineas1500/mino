@@ -94,9 +94,17 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         sessionStorage.setItem("videoUrl", processResult.url)
         
         if (processResult.data) {
-          sessionStorage.setItem("lessonData", JSON.stringify(processResult.data))
+          console.log('Received lesson data:', processResult.data)
+          const lessonData = {
+            transcript: processResult.data.transcript || "",
+            segments: processResult.data.segments || [],
+            summary: processResult.data.summary || "",
+            keyPoints: processResult.data.keyPoints || [],
+            flashcards: processResult.data.flashcards || []
+          }
+          sessionStorage.setItem("lessonData", JSON.stringify(lessonData))
           if (onProcessingComplete) {
-            onProcessingComplete(processResult.data)
+            onProcessingComplete(lessonData)
           }
         }
         

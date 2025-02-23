@@ -1,7 +1,7 @@
 // src/app/api/s3/presigned/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 
-const PI_SERVER = process.env.PI_SERVER || 'http://100.70.34.122:3001'
+const PI_SERVER = process.env.PI_SERVER || 'http://localhost:3001'
 
 export async function POST(request: NextRequest) {
   try {

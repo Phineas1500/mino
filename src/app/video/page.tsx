@@ -1,5 +1,5 @@
 "use client"
-
+import Link from "next/link";
 import { useState, useEffect, useRef } from "react"
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play, Zap } from "lucide-react"
 import { Roboto_Mono } from "next/font/google"
@@ -408,12 +408,19 @@ export default function VideoPage() {
   return (
     <main className="min-h-screen p-4 md:p-8">
       <div className="w-full max-w-6xl mx-auto">
-        {/* Branding Header */}
-        <div className="w-full flex items-center justify-center gap-2 md:gap-4 mb-8">
+      {/* Branding Header */}
+      <Link href="/">
+        <div className="w-full flex items-center justify-center gap-2 md:gap-4 mb-8 cursor-pointer">
           <div className={`text-2xl md:text-4xl font-medium tracking-tight ${robotoMono.className}`}>min</div>
-          <div className="text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">(</div>
-          <div className="text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">)</div>
+          <div className="flex items-center gap-0 text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">
+            <span>(</span>
+            <ChevronLeft className="w-12 h-12 opacity-50 relative top-[5px]" />
+            <span>)</span>
+          </div>
         </div>
+      </Link>
+
+
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Left Column */}

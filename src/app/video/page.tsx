@@ -8,6 +8,9 @@ interface Segment {
   start: number
   end: number
   text: string
+  can_skip: boolean
+  importance_score: number
+  reason: string
 }
 
 interface Flashcard {
@@ -21,6 +24,13 @@ interface LessonData {
   flashcards: Flashcard[]
   transcript: string
   segments: Segment[]
+  stats: {
+    total_segments: number
+    skippable_segments: number
+    total_duration: number
+    skippable_duration: number
+    skippable_percentage: number
+  }
 }
 
 interface VideoState {
@@ -33,7 +43,14 @@ const defaultLessonData: LessonData = {
   keyPoints: [],
   flashcards: [],
   transcript: "",
-  segments: []
+  segments: [],
+  stats: {
+    total_segments: 0,
+    skippable_segments: 0,
+    total_duration: 0,
+    skippable_duration: 0,
+    skippable_percentage: 0
+  }
 }
 
 const robotoMono = Roboto_Mono({
@@ -128,6 +145,8 @@ export default function VideoPage() {
   const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData)
   const [activeVideo, setActiveVideo] = useState<'original' | 'shortened'>('original')
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
 
   useEffect(() => {
     const loadData = () => {
@@ -159,7 +178,14 @@ export default function VideoPage() {
             keyPoints: parsedData.keyPoints || [],
             flashcards: parsedData.flashcards || [],
             transcript: parsedData.transcript || "",
-            segments: parsedData.segments || []
+            segments: parsedData.segments || [],
+            stats: {
+              total_segments: parsedData.stats?.total_segments || 0,
+              skippable_segments: parsedData.stats?.skippable_segments || 0,
+              total_duration: parsedData.stats?.total_duration || 0,
+              skippable_duration: parsedData.stats?.skippable_duration || 0,
+              skippable_percentage: parsedData.stats?.skippable_percentage || 0
+            }
           })
         }
       } catch (error) {
@@ -173,13 +199,24 @@ export default function VideoPage() {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === "videoUrl") {
         setOriginalVideo(prev => ({ ...prev, url: event.newValue }))
-      } else if (event.key === "shortenedUrl") {
-        setShortenedVideo(prev => ({ ...prev, url: event.newValue }))
       } else if (event.key === "lessonData") {
         try {
-          const newData = event.newValue ? JSON.parse(event.newValue) : null
+          const newData = event.newValue ? JSON.parse(event.newValue) : defaultLessonData
           if (newData) {
-            setLessonData(newData)
+            setLessonData({
+              summary: newData.summary || "",
+              keyPoints: newData.keyPoints || [],
+              flashcards: newData.flashcards || [],
+              transcript: newData.transcript || "",
+              segments: newData.segments || [],
+              stats: {
+                total_segments: newData.stats?.total_segments || 0,
+                skippable_segments: newData.stats?.skippable_segments || 0,
+                total_duration: newData.stats?.total_duration || 0,
+                skippable_duration: newData.stats?.skippable_duration || 0,
+                skippable_percentage: newData.stats?.skippable_percentage || 0
+              }
+            })
           }
         } catch (error) {
           console.error('Error parsing updated lesson data:', error)
@@ -310,6 +347,29 @@ export default function VideoPage() {
                 <div className="text-gray-400">No key points available</div>
               )}
             </div>
+
+            {/* Statistics */}
+            <div className="bg-zinc-800 shadow rounded-lg p-6">
+              <h2 className="text-xl font-semibold mb-4 text-white">Analysis</h2>
+              {isProcessing ? (
+                <LoadingPulse />
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300">Total Duration:</span>
+                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300">Skippable Content:</span>
+                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.skippable_duration)} ({Math.round(lessonData.stats.skippable_percentage)}%)</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300">Skippable Segments:</span>
+                    <span className="text-gray-300">{lessonData.stats.skippable_segments} of {lessonData.stats.total_segments}</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Column */}
@@ -387,14 +447,38 @@ export default function VideoPage() {
                     }`}
                   >
                     {lessonData.segments.map((segment, index) => (
-                      <div key={index} className="group">
-                        <button
-                          onClick={() => handleTimestampClick(segment.start)}
-                          className="text-blue-400 hover:text-blue-300 font-mono text-sm mb-1 group-hover:opacity-100 opacity-70"
-                        >
-                          [{formatTimestamp(segment.start)}]
-                        </button>
-                        <span className="text-gray-300 ml-2">{segment.text}</span>
+                      <div 
+                        key={index} 
+                        className={`group p-4 rounded-lg ${
+                          segment.can_skip ? 'bg-zinc-700/50' : 'bg-zinc-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <button
+                            onClick={() => handleTimestampClick(segment.start)}
+                            className="text-blue-400 hover:text-blue-300 font-mono text-sm group-hover:opacity-100 opacity-70"
+                          >
+                            [{formatTimestamp(segment.start)}]
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-xs rounded ${
+                              segment.importance_score >= 7 ? 'bg-green-600/30 text-green-200' :
+                              segment.importance_score >= 4 ? 'bg-yellow-600/30 text-yellow-200' :
+                              'bg-red-600/30 text-red-200'
+                            }`}>
+                              Score: {segment.importance_score}/10
+                            </span>
+                            {segment.can_skip && (
+                              <span className="px-2 py-0.5 bg-yellow-600/30 text-yellow-200 text-xs rounded">
+                                Skippable
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-gray-300">{segment.text}</p>
+                        <p className="mt-2 text-sm text-gray-400 italic">
+                          {segment.reason}
+                        </p>
                       </div>
                     ))}
                   </div>

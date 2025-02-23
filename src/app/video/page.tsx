@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react"
 import { Roboto_Mono } from "next/font/google"
-import { Maximize2, Minimize2 } from "lucide-react"
 
 interface Segment {
   start: number
@@ -24,12 +23,17 @@ interface LessonData {
   segments: Segment[]
 }
 
+interface VideoState {
+  url: string | null
+  error: string | null
+}
+
 const defaultLessonData: LessonData = {
   summary: "",
   keyPoints: [],
   flashcards: [],
   transcript: "",
-  segments: [],
+  segments: []
 }
 
 const robotoMono = Roboto_Mono({
@@ -57,42 +61,109 @@ function formatTimestamp(seconds: number): string {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`
 }
 
+const VideoPlayer = ({ 
+  type, 
+  video, 
+  onError, 
+  videoRef 
+}: { 
+  type: 'original' | 'shortened'
+  video: VideoState
+  onError: (type: 'original' | 'shortened', error: string) => void
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
+}) => {
+  const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const video = e.currentTarget
+    const error = video.error
+    
+    let errorMessage = 'Failed to load video'
+    if (error?.message) {
+      errorMessage += `: ${error.message}`
+    }
+    
+    onError(type, errorMessage)
+  }
+
+  if (video.error) {
+    return (
+      <div className="w-full aspect-video bg-zinc-900 rounded-lg flex items-center justify-center">
+        <div className="text-center p-4">
+          <p className="text-red-500 mb-2">{video.error}</p>
+          <div className="text-sm text-gray-400 mb-4">
+            If the problem persists, try uploading the video again.
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Refresh Page
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return video.url ? (
+    <video 
+      ref={videoRef}
+      key={type}
+      src={video.url} 
+      controls 
+      className="w-full aspect-video"
+      onError={handleVideoError}
+      onLoadStart={() => console.log(`Starting to load ${type} video...`)}
+      onLoadedData={() => console.log(`${type} video loaded successfully`)}
+    />
+  ) : null
+}
+
 export default function VideoPage() {
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const originalVideoRef = useRef<HTMLVideoElement>(null)
+  const shortenedVideoRef = useRef<HTMLVideoElement>(null)
+  const [originalVideo, setOriginalVideo] = useState<VideoState>({ url: null, error: null })
+  const [shortenedVideo, setShortenedVideo] = useState<VideoState>({ url: null, error: null })
   const [currentFlashcard, setCurrentFlashcard] = useState(0)
   const [showAnswer, setShowAnswer] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData)
+  const [activeVideo, setActiveVideo] = useState<'original' | 'shortened'>('original')
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false)
 
   useEffect(() => {
-    // Load video URL and lesson data from session storage
     const loadData = () => {
       try {
-        const storedUrl = sessionStorage.getItem("videoUrl")
-        console.log("Loaded URL from session storage:", storedUrl)
+        // Load video URLs
+        const originalUrl = sessionStorage.getItem("videoUrl")
+        const shortenedUrl = sessionStorage.getItem("shortenedUrl")
+        
+        console.log("Loading URLs from session storage:", {
+          originalUrl,
+          shortenedUrl,
+          originalExists: !!originalUrl,
+          shortenedExists: !!shortenedUrl
+        })
 
-        if (storedUrl) {
-          setVideoUrl(storedUrl)
+        if (!originalUrl && !shortenedUrl) {
+          console.error("No video URLs found in session storage")
         }
+        
+        setOriginalVideo({ url: originalUrl, error: null })
+        setShortenedVideo({ url: shortenedUrl, error: null })
 
+        // Load lesson data
         const storedLessonData = sessionStorage.getItem("lessonData")
-        console.log("Loaded lesson data from session storage:", storedLessonData)
-
         if (storedLessonData) {
           const parsedData = JSON.parse(storedLessonData)
-          console.log("Parsed lesson data:", parsedData)
           setLessonData({
             summary: parsedData.summary || "",
             keyPoints: parsedData.keyPoints || [],
             flashcards: parsedData.flashcards || [],
             transcript: parsedData.transcript || "",
-            segments: parsedData.segments || [],
+            segments: parsedData.segments || []
           })
         }
       } catch (error) {
-        console.error("Error loading data from session storage:", error)
+        console.error('Error loading data from session storage:', error)
       }
     }
 
@@ -101,8 +172,9 @@ export default function VideoPage() {
     // Add storage event listener to handle updates
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === "videoUrl") {
-        console.log("Video URL updated in storage:", event.newValue)
-        setVideoUrl(event.newValue)
+        setOriginalVideo(prev => ({ ...prev, url: event.newValue }))
+      } else if (event.key === "shortenedUrl") {
+        setShortenedVideo(prev => ({ ...prev, url: event.newValue }))
       } else if (event.key === "lessonData") {
         try {
           const newData = event.newValue ? JSON.parse(event.newValue) : null
@@ -110,84 +182,48 @@ export default function VideoPage() {
             setLessonData(newData)
           }
         } catch (error) {
-          console.error("Error parsing updated lesson data:", error)
+          console.error('Error parsing updated lesson data:', error)
         }
       }
     }
 
-    window.addEventListener("storage", handleStorageChange)
-    return () => window.removeEventListener("storage", handleStorageChange)
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
   }, [])
 
-  const handleTranscriptUpdate = async (data: any) => {
-    try {
-      setIsProcessing(true)
+  const handleVideoError = (type: 'original' | 'shortened', errorMessage: string) => {
+    if (type === 'original') {
+      setOriginalVideo(prev => ({ ...prev, error: errorMessage }))
+    } else {
+      setShortenedVideo(prev => ({ ...prev, error: errorMessage }))
+    }
+  }
 
-      // If we already have processed data in the response
-      if (data.summary && data.keyPoints && data.flashcards) {
-        const processedData: LessonData = {
-          summary: data.summary,
-          keyPoints: data.keyPoints,
-          flashcards: data.flashcards,
-          transcript: data.transcript,
-          segments: data.segments || [],
-        }
-        sessionStorage.setItem("lessonData", JSON.stringify(processedData))
-        setLessonData(processedData)
-        return
-      }
-
-      // If we need to process the transcript
-      const response = await fetch("/api/transcript", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ transcript: data.transcript }),
-      })
-
-      if (!response.ok) throw new Error("Failed to process transcript")
-
-      const result = await response.json()
-      if (result.success && result.data) {
-        const processedData: LessonData = {
-          summary: result.data.summary || "",
-          keyPoints: result.data.keyPoints || [],
-          flashcards: result.data.flashcards || [],
-          transcript: result.data.transcript || data.transcript || "",
-          segments: result.data.segments || data.segments || [],
-        }
-
-        sessionStorage.setItem("lessonData", JSON.stringify(processedData))
-        setLessonData(processedData)
-      }
-    } catch (error) {
-      console.error("Error updating transcript:", error)
-    } finally {
-      setIsProcessing(false)
+  const handleTimestampClick = (time: number) => {
+    const currentRef = activeVideo === 'original' ? originalVideoRef : shortenedVideoRef
+    if (currentRef.current) {
+      currentRef.current.currentTime = time
+      currentRef.current.play()
     }
   }
 
   const nextFlashcard = () => {
     if (!lessonData.flashcards.length) return
-    setCurrentFlashcard((prev) => (prev === lessonData.flashcards.length - 1 ? 0 : prev + 1))
+    setCurrentFlashcard((prev) => 
+      prev === lessonData.flashcards.length - 1 ? 0 : prev + 1
+    )
     setShowAnswer(false)
   }
 
   const prevFlashcard = () => {
     if (!lessonData.flashcards.length) return
-    setCurrentFlashcard((prev) => (prev === 0 ? lessonData.flashcards.length - 1 : prev - 1))
+    setCurrentFlashcard((prev) => 
+      prev === 0 ? lessonData.flashcards.length - 1 : prev - 1
+    )
     setShowAnswer(false)
   }
 
-  const handleTimestampClick = (time: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = time
-      videoRef.current.play()
-    }
-  }
-
-  if (!videoUrl) {
+  if (!originalVideo.url && !shortenedVideo.url) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-6">
         <div className="text-xl text-gray-400 mb-4">No video to display</div>
@@ -211,16 +247,39 @@ export default function VideoPage() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold">Video Lesson</h1>
+              {shortenedVideo.url && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setActiveVideo('original')}
+                    className={`px-4 py-2 rounded ${
+                      activeVideo === 'original' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-zinc-700 text-gray-300'
+                    }`}
+                  >
+                    Original
+                  </button>
+                  <button
+                    onClick={() => setActiveVideo('shortened')}
+                    className={`px-4 py-2 rounded ${
+                      activeVideo === 'shortened' 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-zinc-700 text-gray-300'
+                    }`}
+                  >
+                    Shortened
+                  </button>
+                </div>
+              )}
             </div>
-
+            
             {/* Video Player */}
             <div className="rounded-lg overflow-hidden bg-black">
-              <video
-                ref={videoRef}
-                src={videoUrl}
-                controls
-                className="w-full aspect-video"
-                onError={(e) => console.error("Video error:", e)}
+              <VideoPlayer 
+                type={activeVideo}
+                video={activeVideo === 'original' ? originalVideo : shortenedVideo}
+                onError={handleVideoError}
+                videoRef={activeVideo === 'original' ? originalVideoRef : shortenedVideoRef}
               />
             </div>
 
@@ -230,7 +289,9 @@ export default function VideoPage() {
               {isProcessing ? (
                 <LoadingPulse />
               ) : (
-                <div className="text-gray-300">{lessonData?.summary || "No summary available"}</div>
+                <div className="text-gray-300">
+                  {lessonData?.summary || "No summary available"}
+                </div>
               )}
             </div>
 
@@ -239,7 +300,7 @@ export default function VideoPage() {
               <h2 className="text-xl font-semibold mb-4 text-white">Key Points</h2>
               {isProcessing ? (
                 <LoadingPulse />
-              ) : lessonData?.keyPoints && lessonData.keyPoints.length > 0 ? (
+              ) : (lessonData?.keyPoints && lessonData.keyPoints.length > 0) ? (
                 <ul className="list-disc list-inside text-gray-300 space-y-2">
                   {lessonData.keyPoints.map((point, index) => (
                     <li key={index}>{point}</li>
@@ -262,9 +323,9 @@ export default function VideoPage() {
               <h2 className="text-xl font-semibold mb-4 text-white">Flashcards</h2>
               {isProcessing ? (
                 <LoadingPulse />
-              ) : lessonData?.flashcards && lessonData.flashcards.length > 0 ? (
+              ) : (lessonData?.flashcards && lessonData.flashcards.length > 0) ? (
                 <div className="space-y-4">
-                  <div className="bg-gray-700 p-6 rounded-lg min-h-[200px] flex flex-col justify-between">
+                  <div className="bg-zinc-700 p-6 rounded-lg min-h-[200px] flex flex-col justify-between">
                     <div className="text-gray-300">
                       <div className="font-semibold mb-2">Question:</div>
                       <div>{lessonData.flashcards[currentFlashcard]?.question}</div>
@@ -276,7 +337,10 @@ export default function VideoPage() {
                       )}
                     </div>
                     <div className="flex justify-between items-center mt-4">
-                      <button onClick={prevFlashcard} className="p-2 text-gray-400 hover:text-white">
+                      <button
+                        onClick={prevFlashcard}
+                        className="p-2 text-gray-400 hover:text-white"
+                      >
                         <ChevronLeft className="w-6 h-6" />
                       </button>
                       <button
@@ -285,7 +349,10 @@ export default function VideoPage() {
                       >
                         {showAnswer ? "Hide Answer" : "Show Answer"}
                       </button>
-                      <button onClick={nextFlashcard} className="p-2 text-gray-400 hover:text-white">
+                      <button
+                        onClick={nextFlashcard}
+                        className="p-2 text-gray-400 hover:text-white"
+                      >
                         <ChevronRight className="w-6 h-6" />
                       </button>
                     </div>
@@ -340,4 +407,3 @@ export default function VideoPage() {
     </main>
   )
 }
-

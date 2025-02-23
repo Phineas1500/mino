@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play, Zap } from "lucide-react"
 import { Roboto_Mono } from "next/font/google"
 
 interface Segment {
@@ -10,6 +10,9 @@ interface Segment {
   text: string
   can_skip: boolean
   importance_score: number
+  playback_speed: number
+  original_duration: number
+  adjusted_duration: number
   reason: string
 }
 
@@ -30,6 +33,7 @@ interface LessonData {
     total_duration: number
     skippable_duration: number
     skippable_percentage: number
+    time_saved_percentage: number  // Added this field
   }
 }
 
@@ -49,7 +53,8 @@ const defaultLessonData: LessonData = {
     skippable_segments: 0,
     total_duration: 0,
     skippable_duration: 0,
-    skippable_percentage: 0
+    skippable_percentage: 0,
+    time_saved_percentage: 0  // Added this field
   }
 }
 
@@ -81,14 +86,21 @@ function formatTimestamp(seconds: number): string {
 const VideoPlayer = ({ 
   type, 
   video, 
-  onError, 
+  onError,
+  segments,
   videoRef 
 }: { 
-  type: 'original' | 'shortened'
+  type: 'original' | 'turbo'
   video: VideoState
-  onError: (type: 'original' | 'shortened', error: string) => void
+  onError: (type: 'original' | 'turbo', error: string) => void
+  segments: Segment[]
   videoRef: React.MutableRefObject<HTMLVideoElement | null>
 }) => {
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [speedAdjustedTime, setSpeedAdjustedTime] = useState(0)
+  const [speedAdjustedDuration, setSpeedAdjustedDuration] = useState(0)
+
   const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     const video = e.currentTarget
     const error = video.error
@@ -99,6 +111,75 @@ const VideoPlayer = ({
     }
     
     onError(type, errorMessage)
+  }
+
+  // Calculate speed adjusted time based on segments
+  const calculateSpeedAdjustedTime = (currentTime: number) => {
+    let adjustedTime = 0
+    let timeAccumulator = 0
+
+    for (const segment of segments) {
+      const segmentDuration = segment.end - segment.start
+      
+      if (currentTime <= segment.start) {
+        break
+      } else if (currentTime >= segment.end) {
+        timeAccumulator += segmentDuration / segment.playback_speed
+      } else {
+        // We're in this segment
+        const timeInSegment = currentTime - segment.start
+        timeAccumulator += timeInSegment / segment.playback_speed
+      }
+    }
+
+    return timeAccumulator
+  }
+
+  // Calculate total speed adjusted duration
+  const calculateSpeedAdjustedDuration = () => {
+    return segments.reduce((total, segment) => {
+      const segmentDuration = segment.end - segment.start
+      return total + (segmentDuration / segment.playback_speed)
+    }, 0)
+  }
+
+  // Update playback speed based on current time
+  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const video = e.currentTarget
+    const currentTime = video.currentTime
+    setCurrentTime(currentTime)
+    
+    // Only adjust speed and calculations for turbo mode
+    if (type === 'turbo') {
+      // Find the current segment
+      const currentSegment = segments.find(
+        seg => currentTime >= seg.start && currentTime < seg.end
+      )
+      
+      if (currentSegment) {
+        // Only update if speed needs to change
+        if (video.playbackRate !== currentSegment.playback_speed) {
+          video.playbackRate = currentSegment.playback_speed
+        }
+      }
+
+      // Update speed adjusted time
+      setSpeedAdjustedTime(calculateSpeedAdjustedTime(currentTime))
+    }
+  }
+
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const video = e.currentTarget
+    setDuration(video.duration)
+    if (type === 'turbo') {
+      setSpeedAdjustedDuration(calculateSpeedAdjustedDuration())
+    }
+  }
+
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60)
+    const seconds = Math.floor(time % 60)
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
   }
 
   if (video.error) {
@@ -121,29 +202,41 @@ const VideoPlayer = ({
   }
 
   return video.url ? (
-    <video 
-      ref={videoRef}
-      key={type}
-      src={video.url} 
-      controls 
-      className="w-full aspect-video"
-      onError={handleVideoError}
-      onLoadStart={() => console.log(`Starting to load ${type} video...`)}
-      onLoadedData={() => console.log(`${type} video loaded successfully`)}
-    />
+    <div className="relative">
+      <video 
+        ref={videoRef}
+        key={type}
+        src={video.url} 
+        controls 
+        className="w-full aspect-video"
+        onError={handleVideoError}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onLoadStart={() => console.log(`Starting to load ${type} video...`)}
+        onLoadedData={() => console.log(`${type} video loaded successfully`)}
+      />
+      {type === 'turbo' && (
+        <div className="absolute bottom-14 right-4 bg-black/80 px-3 py-1 rounded text-sm font-mono">
+          <span className="text-gray-400">Actual: </span>
+          <span className="text-white">{formatTime(speedAdjustedTime)}</span>
+          <span className="text-gray-400"> / </span>
+          <span className="text-white">{formatTime(speedAdjustedDuration)}</span>
+        </div>
+      )}
+    </div>
   ) : null
 }
 
 export default function VideoPage() {
   const originalVideoRef = useRef<HTMLVideoElement>(null)
-  const shortenedVideoRef = useRef<HTMLVideoElement>(null)
+  const turboVideoRef = useRef<HTMLVideoElement>(null)
   const [originalVideo, setOriginalVideo] = useState<VideoState>({ url: null, error: null })
-  const [shortenedVideo, setShortenedVideo] = useState<VideoState>({ url: null, error: null })
+  const [turboVideo, setTurboVideo] = useState<VideoState>({ url: null, error: null })
   const [currentFlashcard, setCurrentFlashcard] = useState(0)
   const [showAnswer, setShowAnswer] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData)
-  const [activeVideo, setActiveVideo] = useState<'original' | 'shortened'>('original')
+  const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('original')
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
@@ -153,21 +246,21 @@ export default function VideoPage() {
       try {
         // Load video URLs
         const originalUrl = sessionStorage.getItem("videoUrl")
-        const shortenedUrl = sessionStorage.getItem("shortenedUrl")
+        const turboUrl = sessionStorage.getItem("turboUrl")
         
         console.log("Loading URLs from session storage:", {
           originalUrl,
-          shortenedUrl,
+          turboUrl,
           originalExists: !!originalUrl,
-          shortenedExists: !!shortenedUrl
+          turboExists: !!turboUrl
         })
 
-        if (!originalUrl && !shortenedUrl) {
+        if (!originalUrl && !turboUrl) {
           console.error("No video URLs found in session storage")
         }
         
         setOriginalVideo({ url: originalUrl, error: null })
-        setShortenedVideo({ url: shortenedUrl, error: null })
+        setTurboVideo({ url: turboUrl, error: null })
 
         // Load lesson data
         const storedLessonData = sessionStorage.getItem("lessonData")
@@ -184,7 +277,8 @@ export default function VideoPage() {
               skippable_segments: parsedData.stats?.skippable_segments || 0,
               total_duration: parsedData.stats?.total_duration || 0,
               skippable_duration: parsedData.stats?.skippable_duration || 0,
-              skippable_percentage: parsedData.stats?.skippable_percentage || 0
+              skippable_percentage: parsedData.stats?.skippable_percentage || 0,
+              time_saved_percentage: parsedData.stats?.time_saved_percentage || 0
             }
           })
         }
@@ -214,7 +308,8 @@ export default function VideoPage() {
                 skippable_segments: newData.stats?.skippable_segments || 0,
                 total_duration: newData.stats?.total_duration || 0,
                 skippable_duration: newData.stats?.skippable_duration || 0,
-                skippable_percentage: newData.stats?.skippable_percentage || 0
+                skippable_percentage: newData.stats?.skippable_percentage || 0,
+                time_saved_percentage: newData.stats?.time_saved_percentage || 0
               }
             })
           }
@@ -228,16 +323,56 @@ export default function VideoPage() {
     return () => window.removeEventListener('storage', handleStorageChange)
   }, [])
 
-  const handleVideoError = (type: 'original' | 'shortened', errorMessage: string) => {
+  useEffect(() => {
+    if (lessonData.segments.length > 0) {
+      const total_segments = lessonData.segments.length;
+      const skippable_segments = lessonData.segments.filter(segment => segment.can_skip).length;
+      const total_duration = lessonData.segments.reduce((sum, segment) => sum + (segment.end - segment.start), 0);
+      const skippable_duration = lessonData.segments.reduce((sum, segment) => 
+        segment.can_skip ? sum + (segment.end - segment.start) : sum, 0);
+      const skippable_percentage = total_duration ? (skippable_duration / total_duration) * 100 : 0;
+      
+      // Calculate time saved based on playback speeds
+      const original_time = lessonData.segments.reduce((sum, segment) => 
+        sum + (segment.end - segment.start), 0);
+      const adjusted_time = lessonData.segments.reduce((sum, segment) => 
+        sum + (segment.end - segment.start) / segment.playback_speed, 0);
+      const time_saved_percentage = ((original_time - adjusted_time) / original_time) * 100;
+
+      // Only update if stats have changed
+      if (
+        lessonData.stats.total_segments !== total_segments ||
+        lessonData.stats.skippable_segments !== skippable_segments ||
+        lessonData.stats.total_duration !== total_duration ||
+        lessonData.stats.skippable_duration !== skippable_duration ||
+        lessonData.stats.skippable_percentage !== skippable_percentage ||
+        lessonData.stats.time_saved_percentage !== time_saved_percentage
+      ) {
+        setLessonData(prev => ({
+          ...prev,
+          stats: {
+            total_segments,
+            skippable_segments,
+            total_duration,
+            skippable_duration,
+            skippable_percentage,
+            time_saved_percentage
+          }
+        }));
+      }
+    }
+  }, [lessonData.segments]);
+
+  const handleVideoError = (type: 'original' | 'turbo', errorMessage: string) => {
     if (type === 'original') {
       setOriginalVideo(prev => ({ ...prev, error: errorMessage }))
     } else {
-      setShortenedVideo(prev => ({ ...prev, error: errorMessage }))
+      setTurboVideo(prev => ({ ...prev, error: errorMessage }))
     }
   }
 
   const handleTimestampClick = (time: number) => {
-    const currentRef = activeVideo === 'original' ? originalVideoRef : shortenedVideoRef
+    const currentRef = activeVideo === 'original' ? originalVideoRef : turboVideoRef
     if (currentRef.current) {
       currentRef.current.currentTime = time
       currentRef.current.play()
@@ -260,7 +395,7 @@ export default function VideoPage() {
     setShowAnswer(false)
   }
 
-  if (!originalVideo.url && !shortenedVideo.url) {
+  if (!originalVideo.url && !turboVideo.url) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-6">
         <div className="text-xl text-gray-400 mb-4">No video to display</div>
@@ -284,39 +419,40 @@ export default function VideoPage() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold">Video Lesson</h1>
-              {shortenedVideo.url && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setActiveVideo('original')}
-                    className={`px-4 py-2 rounded ${
-                      activeVideo === 'original' 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-zinc-700 text-gray-300'
-                    }`}
-                  >
-                    Original
-                  </button>
-                  <button
-                    onClick={() => setActiveVideo('shortened')}
-                    className={`px-4 py-2 rounded ${
-                      activeVideo === 'shortened' 
-                        ? 'bg-blue-600 text-white' 
-                        : 'bg-zinc-700 text-gray-300'
-                    }`}
-                  >
-                    Shortened
-                  </button>
-                </div>
-              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setActiveVideo('original')}
+                  className={`px-4 py-2 rounded flex items-center gap-2 ${
+                    activeVideo === 'original' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
+                  }`}
+                >
+                  <Play className="w-4 h-4" />
+                  Original
+                </button>
+                <button
+                  onClick={() => setActiveVideo('turbo')}
+                  className={`px-4 py-2 rounded flex items-center gap-2 ${
+                    activeVideo === 'turbo'
+                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white' 
+                      : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
+                  }`}
+                >
+                  <Zap className={`w-4 h-4 ${activeVideo === 'turbo' ? 'animate-pulse' : ''}`} />
+                  Turbo
+                </button>
+              </div>
             </div>
             
             {/* Video Player */}
             <div className="rounded-lg overflow-hidden bg-black">
               <VideoPlayer 
                 type={activeVideo}
-                video={activeVideo === 'original' ? originalVideo : shortenedVideo}
+                video={originalVideo}
                 onError={handleVideoError}
-                videoRef={activeVideo === 'original' ? originalVideoRef : shortenedVideoRef}
+                segments={lessonData.segments}
+                videoRef={activeVideo === 'original' ? originalVideoRef : turboVideoRef}
               />
             </div>
 
@@ -356,12 +492,16 @@ export default function VideoPage() {
               ) : (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Total Duration:</span>
+                    <span className="text-gray-300">Original Duration:</span>
                     <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Skippable Content:</span>
-                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.skippable_duration)} ({Math.round(lessonData.stats.skippable_percentage)}%)</span>
+                    <span className="text-gray-300">Adjusted Duration:</span>
+                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration - (lessonData.stats.total_duration * lessonData.stats.time_saved_percentage / 100))}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-300">Time Saved:</span>
+                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration * lessonData.stats.time_saved_percentage / 100)} ({Math.round(lessonData.stats.time_saved_percentage)}%)</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-300">Skippable Segments:</span>
@@ -467,6 +607,13 @@ export default function VideoPage() {
                               'bg-red-600/30 text-red-200'
                             }`}>
                               Score: {segment.importance_score}/10
+                            </span>
+                            <span className={`px-2 py-0.5 text-xs rounded ${
+                              segment.playback_speed <= 1.2 ? 'bg-green-600/30 text-green-200' :
+                              segment.playback_speed <= 1.8 ? 'bg-yellow-600/30 text-yellow-200' :
+                              'bg-red-600/30 text-red-200'
+                            }`}>
+                              {segment.playback_speed}x
                             </span>
                             {segment.can_skip && (
                               <span className="px-2 py-0.5 bg-yellow-600/30 text-yellow-200 text-xs rounded">

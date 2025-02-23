@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Roboto_Mono } from "next/font/google";
 
@@ -50,7 +50,14 @@ const LoadingPulse = () => (
   </div>
 );
 
+function formatTimestamp(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
 export default function VideoPage() {
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [currentFlashcard, setCurrentFlashcard] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
@@ -175,6 +182,13 @@ export default function VideoPage() {
     setShowAnswer(false);
   };
 
+  const handleTimestampClick = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      videoRef.current.play();
+    }
+  };
+
   if (!videoUrl) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-6">
@@ -204,6 +218,7 @@ export default function VideoPage() {
             {/* Video Player */}
             <div className="rounded-lg overflow-hidden bg-black">
               <video 
+                ref={videoRef}
                 src={videoUrl} 
                 controls 
                 className="w-full aspect-video"
@@ -297,8 +312,18 @@ export default function VideoPage() {
                 {isProcessing ? (
                   <LoadingPulse />
                 ) : (
-                  <div className="text-gray-300 whitespace-pre-wrap">
-                    {lessonData.transcript || "No transcript available"}
+                  <div className="space-y-4">
+                    {lessonData.segments.map((segment, index) => (
+                      <div key={index} className="group">
+                        <button
+                          onClick={() => handleTimestampClick(segment.start)}
+                          className="text-blue-400 hover:text-blue-300 font-mono text-sm mb-1 group-hover:opacity-100 opacity-70"
+                        >
+                          [{formatTimestamp(segment.start)}]
+                        </button>
+                        <span className="text-gray-300 ml-2">{segment.text}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

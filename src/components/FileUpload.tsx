@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Upload, Loader2 } from "lucide-react"
 import { compressVideo, shouldCompress } from '../components/videoCompressor';
 
@@ -33,6 +33,22 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     message: string
   }>({ status: 'idle', message: '' })
   const [uploadGlow, setUploadGlow] = useState(false)
+  
+  // Add refs to store abort controllers
+  const uploadAbortController = useRef<AbortController | null>(null)
+  const processAbortController = useRef<AbortController | null>(null)
+
+  const handleCancel = () => {
+    // Abort any ongoing requests
+    uploadAbortController.current?.abort()
+    processAbortController.current?.abort()
+    
+    // Reset state
+    setProgress({ status: 'idle', message: '' })
+    setUploading(false)
+    setFile(null)
+    setUploadGlow(false)
+  }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -54,6 +70,9 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     setProgress({ status: 'uploading', message: 'Getting upload URL...' })
 
     try {
+      // Create new abort controller for this upload
+      uploadAbortController.current = new AbortController()
+
       // Step 1: Get presigned URL with retry logic
       let urlResponse: Response | undefined
       let retries = 3
@@ -67,10 +86,14 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
             body: JSON.stringify({
               fileName: compressedFile.name,
               fileType: compressedFile.type
-            })
+            }),
+            signal: uploadAbortController.current.signal
           })
           if (urlResponse.ok) break
         } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error('Upload cancelled')
+          }
           console.warn(`Attempt ${4 - retries} failed, retrying...`)
           retries--
           if (retries === 0) throw error
@@ -88,7 +111,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       
       setProgress({ status: 'uploading', message: 'Uploading to S3...' })
 
-      // Step 2: Upload to S3 with retry logic
+      // Step 2: Upload to S3 with retry logic and abort signal
       let uploadResponse: Response | undefined
       retries = 3
       while (retries > 0) {
@@ -98,10 +121,14 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
             body: compressedFile,
             headers: {
               'Content-Type': compressedFile.type
-            }
+            },
+            signal: uploadAbortController.current.signal
           })
           if (uploadResponse.ok) break
         } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw new Error('Upload cancelled')
+          }
           console.warn(`Upload attempt ${4 - retries} failed, retrying...`)
           retries--
           if (retries === 0) throw error
@@ -116,12 +143,12 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
 
       // Step 3: Process the video with timeout and retry logic
       setProgress({ status: 'processing', message: 'Processing video...' })
+      processAbortController.current = new AbortController()
       let processResponse: Response | undefined
       retries = 3
       while (retries > 0) {
         try {
-          const controller = new AbortController()
-          const timeout = setTimeout(() => controller.abort(), 300000) // 5-minute timeout
+          const timeout = setTimeout(() => processAbortController.current?.abort(), 300000) // 5-minute timeout
 
           processResponse = await fetch('/api/process-video', {
             method: 'POST',
@@ -131,13 +158,16 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
             body: JSON.stringify({
               fileKey: fields.key
             }),
-            signal: controller.signal
+            signal: processAbortController.current.signal
           })
 
           clearTimeout(timeout)
           if (processResponse.ok) break
         } catch (error: unknown) {
           if (error instanceof Error && error.name === 'AbortError') {
+            if (processAbortController.current?.signal.aborted) {
+              throw new Error('Processing cancelled')
+            }
             throw new Error('Video processing timed out. Please try again with a shorter video.')
           }
           console.warn(`Processing attempt ${4 - retries} failed, retrying...`)
@@ -197,6 +227,9 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     } finally {
       setUploading(false)
       setTimeout(() => setUploadGlow(false), 1000)
+      // Clear abort controllers
+      uploadAbortController.current = null
+      processAbortController.current = null
     }
   }
 
@@ -261,24 +294,39 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         
         {progress.status !== 'idle' && (
           <>
-            <div className={`mt-4 text-sm ${
-              progress.status === 'error' ? 'text-red-500' : 
-              progress.status === 'done' ? 'text-green-500' : 
-              'text-blue-500'
-            }`}>
-              {progress.message}
+            <div className="mt-4 flex items-center justify-between">
+              <div className={`text-sm ${
+                progress.status === 'error' ? 'text-red-500' : 
+                progress.status === 'done' ? 'text-green-500' : 
+                'text-blue-500'
+              }`}>
+                {progress.message}
+              </div>
+              {(progress.status === 'uploading' || progress.status === 'processing') && (
+                <button
+                  onClick={handleCancel}
+                  className="px-3 py-1 text-sm text-red-500 hover:text-red-400 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
             {progress.status !== 'error' && (
-              <div className="w-full mt-4 h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full transition-all duration-500 ease-out rounded-full ${
-                    progress.status === 'done' ? 'bg-green-500' : 'bg-blue-500'
-                  }`}
-                  style={{ 
-                    width: `${getProgressPercentage()}%`,
-                    transition: 'width 0.5s ease-out'
-                  }}
-                />
+              <div className="w-full mt-4">
+                <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-500 ease-out rounded-full ${
+                      progress.status === 'done' ? 'bg-green-500' : 'bg-blue-500'
+                    }`}
+                    style={{ 
+                      width: `${getProgressPercentage()}%`,
+                      transition: 'width 0.5s ease-out'
+                    }}
+                  />
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground text-center">
+                  {getProgressPercentage()}%
+                </div>
               </div>
             )}
           </>

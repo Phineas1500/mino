@@ -200,6 +200,23 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     }
   }
 
+  const getProgressPercentage = () => {
+    switch (progress.status) {
+      case 'idle':
+        return 0;
+      case 'uploading':
+        return 33;
+      case 'processing':
+        return 66;
+      case 'done':
+        return 100;
+      case 'error':
+        return 0;
+      default:
+        return 0;
+    }
+  }
+
   return (
     <div className="flex flex-col items-center gap-8">
       {uploadGlow && (
@@ -243,13 +260,28 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         )}
         
         {progress.status !== 'idle' && (
-          <div className={`mt-4 text-sm ${
-            progress.status === 'error' ? 'text-red-500' : 
-            progress.status === 'done' ? 'text-green-500' : 
-            'text-blue-500'
-          }`}>
-            {progress.message}
-          </div>
+          <>
+            <div className={`mt-4 text-sm ${
+              progress.status === 'error' ? 'text-red-500' : 
+              progress.status === 'done' ? 'text-green-500' : 
+              'text-blue-500'
+            }`}>
+              {progress.message}
+            </div>
+            {progress.status !== 'error' && (
+              <div className="w-full mt-4 h-2 bg-gray-800 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full transition-all duration-500 ease-out rounded-full ${
+                    progress.status === 'done' ? 'bg-green-500' : 'bg-blue-500'
+                  }`}
+                  style={{ 
+                    width: `${getProgressPercentage()}%`,
+                    transition: 'width 0.5s ease-out'
+                  }}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
 

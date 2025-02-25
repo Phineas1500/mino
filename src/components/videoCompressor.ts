@@ -3,19 +3,25 @@
 const SIZE_THRESHOLD = 100 * 1024 * 1024; // Only compress videos larger than 100MB
 const VERY_LARGE_THRESHOLD = 500 * 1024 * 1024; // More aggressive compression above 500MB
 
-// Compression presets based on file size
+// Optimized compression presets for lecture videos
 const COMPRESSION_PRESETS = {
   standard: {
-    videoBitsPerSecond: 2500000,  // 2.5 Mbps
-    quality: 0.85
+    videoBitsPerSecond: 1500000,  // 1.5 Mbps (was 2.5)
+    quality: 0.80,
+    maxWidth: 1280,
+    maxHeight: 720
   },
   high_compression: {
-    videoBitsPerSecond: 1500000,  // 1.5 Mbps
-    quality: 0.75
+    videoBitsPerSecond: 1000000,  // 1 Mbps (was 1.5)
+    quality: 0.70,
+    maxWidth: 1024, 
+    maxHeight: 576
   },
   extreme_compression: {
-    videoBitsPerSecond: 1000000,  // 1 Mbps
-    quality: 0.65
+    videoBitsPerSecond: 800000,   // 800 Kbps (was 1)
+    quality: 0.60,
+    maxWidth: 854,
+    maxHeight: 480
   }
 };
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Upload, Loader2 } from "lucide-react"
+import { compressVideo, shouldCompress } from '../components/videoCompressor';
 
 interface FileUploadProps {
   onFileSelect?: (file: File) => void
@@ -37,7 +38,17 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     const file = e.target.files?.[0]
     if (!file) return
 
-    setFile(file)
+    const compressedBlob = await shouldCompress(file) 
+      ? await compressVideo(file)
+      : file;
+
+    const compressedFile = new File(
+      [compressedBlob], 
+      file.name, 
+      { type: file.type, lastModified: file.lastModified }
+    );
+
+    setFile(compressedFile)
     setUploading(true)
     setUploadGlow(true)
     setProgress({ status: 'uploading', message: 'Getting upload URL...' })
@@ -54,8 +65,8 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              fileName: file.name,
-              fileType: file.type
+              fileName: compressedFile.name,
+              fileType: compressedFile.type
             })
           })
           if (urlResponse.ok) break
@@ -84,9 +95,9 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         try {
           uploadResponse = await fetch(url, {
             method: 'PUT',
-            body: file,
+            body: compressedFile,
             headers: {
-              'Content-Type': file.type
+              'Content-Type': compressedFile.type
             }
           })
           if (uploadResponse.ok) break

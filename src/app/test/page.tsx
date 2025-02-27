@@ -10,8 +10,8 @@ const robotoMono = Roboto_Mono({
 
 // Use localhost for development, Pi's IP for production
 const API_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:3001'
-  : 'http://localhost:3001';
+  ? 'http://100.70.34.122:3001'
+  : 'http://100.70.34.122:3001';
 
 interface LessonData {
   summary: string;

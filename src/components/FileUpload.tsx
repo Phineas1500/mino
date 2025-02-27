@@ -14,7 +14,6 @@ interface ProcessResponse {
   success: boolean
   error?: string
   originalUrl?: string
-  shortenedUrl?: string
   data?: {
     transcript: string
     segments: any[]
@@ -188,16 +187,18 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         throw new Error(processResult.error || 'Failed to process video')
       }
       
-      if (!processResult.originalUrl || !processResult.shortenedUrl) {
-        console.error('Missing URL values:', {
-          originalUrl: processResult.originalUrl,
-          shortenedUrl: processResult.shortenedUrl
+      if (!processResult.originalUrl) {
+        console.error('Missing originalUrl value:', {
+          originalUrl: processResult.originalUrl
         })
-        throw new Error('Failed to get video URLs from processing')
+        throw new Error('Failed to get video URL from processing')
       }
       
+      // Store only the original URL now
       sessionStorage.setItem("videoUrl", processResult.originalUrl)
-      sessionStorage.setItem("shortenedUrl", processResult.shortenedUrl)
+      
+      // Use the same URL for both since we don't generate a shortened version anymore
+      sessionStorage.setItem("shortenedUrl", processResult.originalUrl)
       
       if (processResult.data) {
         const lessonData = {

@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     }
 
     // Call Modal's process_transcript function
-    const modalResponse = await fetch('http://localhost:3001/api/transcript/test', {
+    const modalResponse = await fetch('http://100.70.34.122:3001/api/transcript/test', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

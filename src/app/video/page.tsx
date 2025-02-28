@@ -83,19 +83,23 @@ function formatTimestamp(seconds: number): string {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`
 }
 
-const VideoPlayer = ({ 
-  type, 
-  video, 
-  onError,
-  segments,
-  videoRef 
-}: { 
+interface VideoPlayerProps {
   type: 'original' | 'turbo'
   video: VideoState
   onError: (type: 'original' | 'turbo', error: string) => void
   segments: Segment[]
   videoRef: React.MutableRefObject<HTMLVideoElement | null>
-}) => {
+  onDurationLoaded?: (duration: number) => void
+}
+
+const VideoPlayer = ({ 
+  type, 
+  video, 
+  onError,
+  segments,
+  videoRef,
+  onDurationLoaded
+}: VideoPlayerProps) => {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [speedAdjustedTime, setSpeedAdjustedTime] = useState(0)
@@ -169,12 +173,19 @@ const VideoPlayer = ({
   }
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
-    const video = e.currentTarget
-    setDuration(video.duration)
-    if (type === 'turbo') {
-      setSpeedAdjustedDuration(calculateSpeedAdjustedDuration())
+    const video = e.currentTarget;
+    const actualDuration = video.duration;
+    setDuration(actualDuration);
+    
+    // Report actual duration to parent component if this is the original video
+    if (type === 'original' && onDurationLoaded) {
+      onDurationLoaded(actualDuration);
     }
-  }
+    
+    if (type === 'turbo') {
+      setSpeedAdjustedDuration(calculateSpeedAdjustedDuration());
+    }
+  };
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60)
@@ -239,14 +250,42 @@ export default function VideoPage() {
   const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('original')
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [actualVideoDuration, setActualVideoDuration] = useState<number | null>(null)
+
+  // Handle video duration loaded from metadata
+  const handleVideoDurationLoaded = (duration: number) => {
+    console.log(`Actual video duration loaded: ${duration}s`);
+    setActualVideoDuration(duration);
+    
+    // Update the lesson data with the actual video duration
+    setLessonData(prev => {
+      // Only update if it's actually different
+      if (Math.abs(prev.stats.total_duration - duration) > 1) { // Allow 1s difference
+        // Calculate new time saved percentage based on actual duration
+        const adjusted_time = prev.segments.reduce((sum, segment) => 
+          sum + (segment.end - segment.start) / segment.playback_speed, 0);
+        const time_saved_percentage = ((duration - adjusted_time) / duration) * 100;
+        
+        return {
+          ...prev,
+          stats: {
+            ...prev.stats,
+            total_duration: duration,
+            time_saved_percentage: time_saved_percentage
+          }
+        };
+      }
+      return prev;
+    });
+  };
 
   useEffect(() => {
     const loadData = () => {
       try {
         // Load video URLs
         const originalUrl = sessionStorage.getItem("videoUrl")
-        const turboUrl = sessionStorage.getItem("turboUrl")
+        // For now, using the same URL for both original and turbo
+        const turboUrl = sessionStorage.getItem("videoUrl") // Use videoUrl not turboUrl
         
         console.log("Loading URLs from session storage:", {
           originalUrl,
@@ -293,6 +332,8 @@ export default function VideoPage() {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === "videoUrl") {
         setOriginalVideo(prev => ({ ...prev, url: event.newValue }))
+        // Also update turbo video to use the same URL
+        setTurboVideo(prev => ({ ...prev, url: event.newValue }))
       } else if (event.key === "lessonData") {
         try {
           const newData = event.newValue ? JSON.parse(event.newValue) : defaultLessonData
@@ -325,28 +366,29 @@ export default function VideoPage() {
 
   useEffect(() => {
     if (lessonData.segments.length > 0) {
+      // Always use actual video duration when available, otherwise calculate from segments
+      const total_duration = actualVideoDuration || 
+        lessonData.segments.reduce((sum, segment) => sum + (segment.end - segment.start), 0);
+      
       const total_segments = lessonData.segments.length;
       const skippable_segments = lessonData.segments.filter(segment => segment.can_skip).length;
-      const total_duration = lessonData.segments.reduce((sum, segment) => sum + (segment.end - segment.start), 0);
       const skippable_duration = lessonData.segments.reduce((sum, segment) => 
         segment.can_skip ? sum + (segment.end - segment.start) : sum, 0);
       const skippable_percentage = total_duration ? (skippable_duration / total_duration) * 100 : 0;
       
       // Calculate time saved based on playback speeds
-      const original_time = lessonData.segments.reduce((sum, segment) => 
-        sum + (segment.end - segment.start), 0);
       const adjusted_time = lessonData.segments.reduce((sum, segment) => 
         sum + (segment.end - segment.start) / segment.playback_speed, 0);
-      const time_saved_percentage = ((original_time - adjusted_time) / original_time) * 100;
+      const time_saved_percentage = total_duration ? ((total_duration - adjusted_time) / total_duration) * 100 : 0;
 
       // Only update if stats have changed
       if (
         lessonData.stats.total_segments !== total_segments ||
         lessonData.stats.skippable_segments !== skippable_segments ||
-        lessonData.stats.total_duration !== total_duration ||
-        lessonData.stats.skippable_duration !== skippable_duration ||
-        lessonData.stats.skippable_percentage !== skippable_percentage ||
-        lessonData.stats.time_saved_percentage !== time_saved_percentage
+        Math.abs(lessonData.stats.total_duration - total_duration) > 1 || // Allow 1s difference
+        Math.abs(lessonData.stats.skippable_duration - skippable_duration) > 1 || // Allow 1s difference
+        Math.abs(lessonData.stats.skippable_percentage - skippable_percentage) > 0.1 || // Allow 0.1% difference
+        Math.abs(lessonData.stats.time_saved_percentage - time_saved_percentage) > 0.1 // Allow 0.1% difference
       ) {
         setLessonData(prev => ({
           ...prev,
@@ -361,7 +403,7 @@ export default function VideoPage() {
         }));
       }
     }
-  }, [lessonData.segments]);
+  }, [lessonData.segments, actualVideoDuration]);
 
   const handleVideoError = (type: 'original' | 'turbo', errorMessage: string) => {
     if (type === 'original') {
@@ -420,8 +462,6 @@ export default function VideoPage() {
         </div>
       </Link>
 
-
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="space-y-6">
@@ -457,10 +497,11 @@ export default function VideoPage() {
             <div className="rounded-lg overflow-hidden bg-black">
               <VideoPlayer 
                 type={activeVideo}
-                video={originalVideo}
+                video={activeVideo === 'original' ? originalVideo : turboVideo}
                 onError={handleVideoError}
                 segments={lessonData.segments}
                 videoRef={activeVideo === 'original' ? originalVideoRef : turboVideoRef}
+                onDurationLoaded={handleVideoDurationLoaded}
               />
             </div>
 

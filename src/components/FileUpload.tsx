@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from "react"
-import { Upload, Loader2 } from "lucide-react"
+// Add Link icon or similar for the URL input
+import { Upload, Loader2, Link as LinkIcon } from "lucide-react" 
 import { compressVideo, shouldCompress } from '../components/videoCompressor';
 import { useRouter } from 'next/navigation';
 
@@ -27,6 +28,8 @@ interface ProcessResponse {
 export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video/*" }: FileUploadProps) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null)
+  // Add state for YouTube URL input
+  const [youtubeUrl, setYoutubeUrl] = useState(''); 
   const [uploading, setUploading] = useState(false)
   const [processedUrl, setProcessedUrl] = useState<string | null>(null)
   const [progress, setProgress] = useState<{
@@ -217,6 +220,75 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     }
   }
 
+  // --- NEW: Handler for YouTube URL submission ---
+  const handleUrlSubmit = async () => {
+    if (!youtubeUrl || uploading) return; // Prevent submission if empty or already processing
+
+    // Basic URL validation (optional, enhance as needed)
+    if (!youtubeUrl.startsWith('http://') && !youtubeUrl.startsWith('https://')) {
+       setProgress({ status: 'error', message: 'Please enter a valid URL.' });
+       return;
+    }
+
+    setUploading(true);
+    setUploadGlow(true); // Optional glow effect
+    setProgress({ status: 'processing', message: 'Requesting video download from URL...' }); // Initial message
+    setFile(null); // Clear any selected file
+    setYoutubeUrl(''); // Clear the input field
+
+    let isConflict = false; // Reuse conflict flag logic if applicable
+
+    try {
+      // Use processAbortController for this request as well
+      processAbortController.current = new AbortController();
+
+      // Step 1: Call the new API route to handle the URL
+      const urlProcessResponse = await fetch('/api/process-youtube', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ youtubeUrl }),
+        signal: processAbortController.current.signal
+      });
+
+      // Step 2: Handle the response (similar to file upload initiation)
+      if (urlProcessResponse.status === 409) {
+        console.warn('Processing conflict detected (409) for URL');
+        setProgress({ 
+          status: 'error', 
+          message: 'This video (or another) is already being processed. Please wait.' 
+        });
+        isConflict = true;
+      } else if (urlProcessResponse.status === 202) {
+        const { jobId: receivedJobId } = await urlProcessResponse.json();
+        if (!receivedJobId) {
+          throw new Error('Processing initiated for URL but no Job ID received.');
+        }
+        setJobId(receivedJobId);
+        // Update progress message - backend handles download/upload before processing starts
+        setProgress({ status: 'processing', message: 'Video processing started... (0%)' }); 
+        startPolling(receivedJobId); // Start polling
+      } else {
+        const errorText = await urlProcessResponse.text();
+        throw new Error(`Failed to initiate processing for URL (Status: ${urlProcessResponse.status}): ${errorText}`);
+      }
+
+    } catch (error) {
+      console.error('YouTube URL processing failed:', error);
+      stopPolling(); 
+      setProgress({ 
+        status: 'error', 
+        message: error instanceof Error ? error.message : 'Failed to process YouTube URL' 
+      });
+    } finally {
+      // Reset uploading state only if not a conflict and polling hasn't started
+      if (!isConflict && !jobId) { 
+         setUploading(false);
+      }
+      setTimeout(() => setUploadGlow(false), 1000);
+      processAbortController.current = null; 
+    }
+  };
+
   const pollStatus = async (currentJobId: string) => {
     console.log(`Polling status for job: ${currentJobId}`);
     try {
@@ -328,7 +400,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   }, []); // Empty dependency array ensures this runs only on mount and unmount
 
   return (
-    <div className="flex flex-col items-center gap-8">
+    <div className="flex flex-col items-center gap-8 w-full">
       {uploadGlow && (
         <div className="absolute inset-0 flex items-center justify-center -z-10 pointer-events-none">
           <div className="w-[500%] h-[150%] rounded-full bg-blue-300/30 blur-3xl scale-0 animate-[glow_1s_ease-out]"></div>
@@ -408,6 +480,35 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
             )}
           </>
         )}
+      </div>
+
+      {/* "OR" Separator */}
+      <div className="flex items-center w-full max-w-sm">
+        <div className="flex-grow border-t border-muted-foreground/30"></div>
+        <span className="flex-shrink mx-4 text-muted-foreground text-sm">OR</span>
+        <div className="flex-grow border-t border-muted-foreground/30"></div>
+      </div>
+
+      {/* YouTube URL Input Area */}
+      <div className="w-full max-w-xl flex gap-2">
+        <div className="relative flex-grow">
+           <LinkIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+           <input
+             type="url"
+             placeholder="Paste YouTube video link here"
+             value={youtubeUrl}
+             onChange={(e) => setYoutubeUrl(e.target.value)}
+             disabled={uploading} // Disable while processing
+             className="w-full pl-10 pr-4 py-2 rounded-md border border-muted-foreground/30 bg-black focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+           />
+        </div>
+        <button
+          onClick={handleUrlSubmit}
+          disabled={uploading || !youtubeUrl} // Disable if processing or URL is empty
+          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          Process Link
+        </button>
       </div>
 
       {processedUrl && progress.status === 'done' && (

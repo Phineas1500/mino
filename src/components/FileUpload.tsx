@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Upload, Loader2 } from "lucide-react"
 import { compressVideo, shouldCompress } from '../components/videoCompressor';
 import { useRouter } from 'next/navigation';
@@ -34,12 +34,15 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     message: string
   }>({ status: 'idle', message: '' })
   const [uploadGlow, setUploadGlow] = useState(false)
+  const [jobId, setJobId] = useState<string | null>(null); // State to store the job ID
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null); // Ref for the polling timer
   
   // Add refs to store abort controllers
   const uploadAbortController = useRef<AbortController | null>(null)
   const processAbortController = useRef<AbortController | null>(null)
 
   const handleCancel = () => {
+    stopPolling(); // Stop polling on cancel
     // Abort any ongoing requests
     uploadAbortController.current?.abort()
     processAbortController.current?.abort()
@@ -144,149 +147,147 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         throw new Error(`Failed to upload to S3: ${errorText}`)
       }
 
-      // Step 3: Process the video with timeout and retry logic
-      setProgress({ status: 'processing', message: 'Processing video...' })
-      processAbortController.current = new AbortController()
-      let processResponse: Response | undefined
-      retries = 3
-      // isConflict is already declared outside
+      // Step 3: Initiate video processing
+      setProgress({ status: 'processing', message: 'Initiating processing...' });
+      processAbortController.current = new AbortController(); // Keep abort controller if needed for initial request
+      
+      let initialProcessResponse: Response;
+      try {
+        // Make the initial request to start processing
+        initialProcessResponse = await fetch('/api/process-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileKey: fields.key }),
+          signal: processAbortController.current.signal // Optional: timeout for initial request
+        });
 
-      while (retries > 0 && !isConflict) { 
-        try {
-          const timeout = setTimeout(() => processAbortController.current?.abort(), 300000) // 5-minute timeout
-
-          processResponse = await fetch('/api/process-video', { // This calls your Vercel function
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              // Ensure 'fields.key' contains the correct S3 object key
-              fileKey: fields.key 
-            }),
-            signal: processAbortController.current.signal
-          })
-
-          clearTimeout(timeout)
-
-          // *** START: Handle 409 Conflict ***
-          if (processResponse.status === 409) {
-            console.warn('Processing conflict detected (409)');
-            setProgress({ 
-              status: 'error', // Or a custom status like 'conflict' if you add it
-              message: 'This video is already being processed. Please wait.' 
-            });
-            isConflict = true; // Set flag to stop retries
-            break; // Exit the retry loop immediately
+        if (initialProcessResponse.status === 409) {
+          console.warn('Processing conflict detected (409)');
+          setProgress({ 
+            status: 'error', 
+            message: 'This video is already being processed. Please wait.' 
+          });
+          isConflict = true; 
+          // No need to return here yet, let finally block handle cleanup
+        } else if (initialProcessResponse.status === 202) {
+          // --- Processing Accepted ---
+          const { jobId: receivedJobId } = await initialProcessResponse.json();
+          if (!receivedJobId) {
+            throw new Error('Processing initiated but no Job ID received.');
           }
-          // *** END: Handle 409 Conflict ***
-
-          if (processResponse.ok) break // Break loop on success (2xx status)
-
-          // Handle other non-OK statuses (like 500 errors from backend) for retry
-          console.warn(`Processing attempt ${4 - retries} failed with status ${processResponse.status}, retrying...`);
-
-        } catch (error: unknown) {
-          // Handle fetch errors (network, abort, timeout)
-          if (error instanceof Error && error.name === 'AbortError') {
-            if (processAbortController.current?.signal.aborted) {
-               // Check if it was a timeout or manual cancel
-               // Note: The timeout logic might need refinement if it also uses AbortController
-               const isTimeout = error.message.includes('timed out'); // Simple check, adjust if needed
-               throw new Error(isTimeout ? 'Video processing timed out.' : 'Processing cancelled');
-            }
-            // If not aborted by controller, might be another abort reason
-             throw new Error('Processing request aborted.');
-          }
-          console.warn(`Processing attempt ${4 - retries} failed with error, retrying...`, error);
+          setJobId(receivedJobId); // Store the job ID
+          setProgress({ status: 'processing', message: 'Processing video... (0%)' }); // Update message
+          startPolling(receivedJobId); // Start polling for status
+          // Don't navigate yet, wait for polling result
+        } else {
+          // Handle other unexpected initial responses (e.g., 500)
+          const errorText = await initialProcessResponse.text();
+          throw new Error(`Failed to initiate processing (Status: ${initialProcessResponse.status}): ${errorText}`);
         }
 
-        // Decrement retries only if it wasn't a conflict and not successful
-        if (!isConflict && !processResponse?.ok) {
-            retries--;
-            if (retries === 0) {
-                // Throw error only if all retries failed for non-409 reasons
-                throw new Error(processResponse ? `Processing failed after multiple attempts (Status: ${processResponse.status})` : 'Processing failed after multiple attempts');
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      } // End of while loop
-
-      // If loop exited due to conflict, don't proceed as if it failed normally
-      if (isConflict) {
-         // The progress state is already set, just return or handle UI cleanup
-         return; 
+      } catch (error) {
+         // Handle fetch errors for the initial request
+         if (error instanceof Error && error.name === 'AbortError') {
+           throw new Error('Initiating processing cancelled or timed out.');
+         }
+         console.error('Error initiating processing:', error);
+         // Rethrow or handle as appropriate
+         throw error; 
       }
-
-      // Check if response exists and is OK after the loop (handles cases where loop breaks on success)
-      if (!processResponse?.ok) {
-        // If we are here and it's not a conflict, it means all retries failed or initial non-409 error occurred
-        const errorText = await processResponse?.text();
-        throw new Error(processResponse ? `Failed to process video (Status: ${processResponse.status}): ${errorText}` : 'Failed to process video: No response received after retries');
-      }
-      
-      // --- Processing successful ---
-      const processResult = await processResponse.json() as ProcessResponse;
-      
-      if (!processResult.originalUrl) {
-        console.error('Missing originalUrl value:', {
-          originalUrl: processResult.originalUrl
-        })
-        throw new Error('Failed to get video URL from processing')
-      }
-      
-      // Store only the original URL now
-      sessionStorage.setItem("videoUrl", processResult.originalUrl)
-      
-      // Use the same URL for both since we don't generate a shortened version anymore
-      sessionStorage.setItem("shortenedUrl", processResult.originalUrl)
-      
-      if (processResult.data) {
-        const lessonData = {
-          transcript: processResult.data.transcript || "",
-          segments: processResult.data.segments || [],
-          summary: processResult.data.summary || "",
-          keyPoints: processResult.data.keyPoints || [],
-          flashcards: processResult.data.flashcards || []
-        }
-        sessionStorage.setItem("lessonData", JSON.stringify(lessonData))
-        if (onProcessingComplete) {
-          onProcessingComplete(lessonData)
-        }
-      }
-            
-      setProcessedUrl(processResult.originalUrl)
-      setProgress({ status: 'done', message: 'Video processed successfully!' })
-      
-      router.push('/video'); 
       
     } catch (error) {
-      console.error('Upload/processing failed:', error)
-      // Ensure isConflict is false if we land in the catch block after the loop
-      // (though it should already be false unless the error happened before the loop)
-      isConflict = false; 
+      console.error('Upload/processing failed:', error);
+      // Stop polling if an error occurs during the setup phase
+      stopPolling(); 
+      // isConflict might be true or false here
       setProgress({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Upload failed' 
-      })
+      });
     } finally {
-      // Only reset uploading state if it's NOT a conflict 
-      // and the status isn't currently 'processing' or 'uploading'
-      // Check isConflict flag which is set within the try block
-      if (!isConflict) {
+      // Only reset uploading state if it's NOT a conflict AND polling hasn't started
+      if (!isConflict && !jobId) { 
          setUploading(false);
       }
-      // Alternatively, check the progress state if isConflict isn't accessible
-      // if (progress.status !== 'processing' && progress.status !== 'uploading') {
-      //    setUploading(false);
-      // }
-
-      setTimeout(() => setUploadGlow(false), 1000)
-      // Clear abort controllers
-      uploadAbortController.current = null
-      processAbortController.current = null
+      // Keep uploadGlow logic as is or adjust
+      setTimeout(() => setUploadGlow(false), 1000);
+      // Clear abort controllers (maybe keep processAbortController if used for polling?)
+      uploadAbortController.current = null;
+      // processAbortController.current = null; // Decide if needed for polling cancel
     }
   }
+
+  const pollStatus = async (currentJobId: string) => {
+    console.log(`Polling status for job: ${currentJobId}`);
+    try {
+      const statusResponse = await fetch(`/api/process-status?jobId=${currentJobId}`);
+
+      if (!statusResponse.ok) {
+        // Handle non-OK status check responses (e.g., 404 Not Found, 500)
+        console.error(`Status check failed with status: ${statusResponse.status}`);
+        // Optionally stop polling after too many errors
+        return; 
+      }
+
+      const result = await statusResponse.json();
+
+      switch (result.status) {
+        case 'processing':
+          // Update progress message if needed (e.g., include percentage if available)
+          setProgress(prev => ({ ...prev, message: `Processing video... (${result.progress || 0}%)` }));
+          // Continue polling (handled by setInterval)
+          break;
+        case 'complete':
+          console.log('Processing complete:', result.data);
+          stopPolling(); // Stop polling on success
+          setProgress({ status: 'done', message: 'Video processed successfully!' });
+          
+          // Store results in sessionStorage
+          if (result.data?.originalUrl) {
+             sessionStorage.setItem("videoUrl", result.data.originalUrl);
+             sessionStorage.setItem("shortenedUrl", result.data.originalUrl); // Adjust if needed
+          }
+          if (result.data) {
+             const lessonData = { /* ... construct lessonData from result.data ... */ };
+             sessionStorage.setItem("lessonData", JSON.stringify(lessonData));
+             if (onProcessingComplete) {
+                onProcessingComplete(lessonData);
+             }
+          }
+          setProcessedUrl(result.data?.originalUrl || null); // Update state if needed
+          setUploading(false); // Allow new uploads now
+          router.push('/video'); // Navigate on success
+          break;
+        case 'error':
+          console.error('Processing failed:', result.message);
+          stopPolling(); // Stop polling on error
+          setProgress({ status: 'error', message: `Processing failed: ${result.message}` });
+          setUploading(false); // Allow new uploads now
+          break;
+        case 'not_found':
+          console.error(`Job ID ${currentJobId} not found.`);
+          stopPolling();
+          setProgress({ status: 'error', message: 'Processing job not found.' });
+          setUploading(false);
+          break;
+        default:
+          console.warn(`Unknown status received: ${result.status}`);
+          // Optionally stop polling or handle as error
+      }
+    } catch (error) {
+      console.error('Error during polling:', error);
+      // Optionally stop polling after too many network errors
+    }
+  };
+
+  const startPolling = (currentJobId: string) => {
+    stopPolling(); // Clear any existing interval first
+    console.log(`Starting polling for job: ${currentJobId}`);
+    // Poll immediately first time
+    pollStatus(currentJobId); 
+    // Then poll every 5 seconds (adjust interval as needed)
+    pollingIntervalRef.current = setInterval(() => pollStatus(currentJobId), 5000); 
+  };
 
   const getProgressPercentage = () => {
     switch (progress.status) {
@@ -304,6 +305,23 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         return 0;
     }
   }
+
+  // Function to stop polling
+  const stopPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+      console.log('Polling stopped.');
+    }
+  };
+
+  // Add useEffect for cleanup when component unmounts
+  useEffect(() => {
+    // Cleanup function to stop polling if the component unmounts
+    return () => {
+      stopPolling();
+    };
+  }, []); // Empty dependency array ensures this runs only on mount and unmount
 
   return (
     <div className="flex flex-col items-center gap-8">

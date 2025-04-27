@@ -3,6 +3,7 @@
 import { useState, useRef } from "react"
 import { Upload, Loader2 } from "lucide-react"
 import { compressVideo, shouldCompress } from '../components/videoCompressor';
+import { useRouter } from 'next/navigation';
 
 interface FileUploadProps {
   onFileSelect?: (file: File) => void
@@ -24,6 +25,7 @@ interface ProcessResponse {
 }
 
 export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video/*" }: FileUploadProps) {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [processedUrl, setProcessedUrl] = useState<string | null>(null)
@@ -217,7 +219,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       setProcessedUrl(processResult.originalUrl)
       setProgress({ status: 'done', message: 'Video processed successfully!' })
       
-      window.location.href = '/video'
+      router.push('/video'); 
       
     } catch (error) {
       console.error('Upload/processing failed:', error)

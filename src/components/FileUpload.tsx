@@ -147,47 +147,84 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       processAbortController.current = new AbortController()
       let processResponse: Response | undefined
       retries = 3
-      while (retries > 0) {
+      let isConflict = false; // Flag to track 409 conflict
+
+      while (retries > 0 && !isConflict) { // Add !isConflict to the loop condition
         try {
           const timeout = setTimeout(() => processAbortController.current?.abort(), 300000) // 5-minute timeout
 
-          processResponse = await fetch('/api/process-video', {
+          processResponse = await fetch('/api/process-video', { // This calls your Vercel function
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              fileKey: fields.key
+              // Ensure 'fields.key' contains the correct S3 object key
+              fileKey: fields.key 
             }),
             signal: processAbortController.current.signal
           })
 
           clearTimeout(timeout)
-          if (processResponse.ok) break
+
+          // *** START: Handle 409 Conflict ***
+          if (processResponse.status === 409) {
+            console.warn('Processing conflict detected (409)');
+            setProgress({ 
+              status: 'error', // Or a custom status like 'conflict' if you add it
+              message: 'This video is already being processed. Please wait.' 
+            });
+            isConflict = true; // Set flag to stop retries
+            break; // Exit the retry loop immediately
+          }
+          // *** END: Handle 409 Conflict ***
+
+          if (processResponse.ok) break // Break loop on success (2xx status)
+
+          // Handle other non-OK statuses (like 500 errors from backend) for retry
+          console.warn(`Processing attempt ${4 - retries} failed with status ${processResponse.status}, retrying...`);
+
         } catch (error: unknown) {
+          // Handle fetch errors (network, abort, timeout)
           if (error instanceof Error && error.name === 'AbortError') {
             if (processAbortController.current?.signal.aborted) {
-              throw new Error('Processing cancelled')
+               // Check if it was a timeout or manual cancel
+               // Note: The timeout logic might need refinement if it also uses AbortController
+               const isTimeout = error.message.includes('timed out'); // Simple check, adjust if needed
+               throw new Error(isTimeout ? 'Video processing timed out.' : 'Processing cancelled');
             }
-            throw new Error('Video processing timed out. Please try again with a shorter video.')
+            // If not aborted by controller, might be another abort reason
+             throw new Error('Processing request aborted.');
           }
-          console.warn(`Processing attempt ${4 - retries} failed, retrying...`)
-          retries--
-          if (retries === 0) throw error
-          await new Promise(resolve => setTimeout(resolve, 2000))
+          console.warn(`Processing attempt ${4 - retries} failed with error, retrying...`, error);
         }
+
+        // Decrement retries only if it wasn't a conflict and not successful
+        if (!isConflict && !processResponse?.ok) {
+            retries--;
+            if (retries === 0) {
+                // Throw error only if all retries failed for non-409 reasons
+                throw new Error(processResponse ? `Processing failed after multiple attempts (Status: ${processResponse.status})` : 'Processing failed after multiple attempts');
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      } // End of while loop
+
+      // If loop exited due to conflict, don't proceed as if it failed normally
+      if (isConflict) {
+         // The progress state is already set, just return or handle UI cleanup
+         return; 
       }
 
-      if (!processResponse) {
-        throw new Error('Failed to process video: No response received')
+      // Check if response exists and is OK after the loop (handles cases where loop breaks on success)
+      if (!processResponse?.ok) {
+        // If we are here and it's not a conflict, it means all retries failed or initial non-409 error occurred
+        const errorText = await processResponse?.text();
+        throw new Error(processResponse ? `Failed to process video (Status: ${processResponse.status}): ${errorText}` : 'Failed to process video: No response received after retries');
       }
       
-      const processResult = await processResponse.json() as ProcessResponse
-      console.log('Process result received:', processResult)
-      
-      if (!processResponse.ok || !processResult.success) {
-        throw new Error(processResult.error || 'Failed to process video')
-      }
+      // --- Processing successful ---
+      const processResult = await processResponse.json() as ProcessResponse;
       
       if (!processResult.originalUrl) {
         console.error('Missing originalUrl value:', {

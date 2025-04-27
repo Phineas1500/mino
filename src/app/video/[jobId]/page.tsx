@@ -1,6 +1,7 @@
 "use client"
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react"
+import { useParams } from 'next/navigation'; // Import useParams
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play, Zap } from "lucide-react"
 import { Roboto_Mono } from "next/font/google"
 
@@ -33,7 +34,7 @@ interface LessonData {
     total_duration: number
     skippable_duration: number
     skippable_percentage: number
-    time_saved_percentage: number  // Added this field
+    time_saved_percentage: number
   }
 }
 
@@ -54,7 +55,7 @@ const defaultLessonData: LessonData = {
     total_duration: 0,
     skippable_duration: 0,
     skippable_percentage: 0,
-    time_saved_percentage: 0  // Added this field
+    time_saved_percentage: 0
   }
 }
 
@@ -117,7 +118,6 @@ const VideoPlayer = ({
     onError(type, errorMessage)
   }
 
-  // Calculate speed adjusted time based on segments
   const calculateSpeedAdjustedTime = (currentTime: number) => {
     let adjustedTime = 0
     let timeAccumulator = 0
@@ -130,7 +130,6 @@ const VideoPlayer = ({
       } else if (currentTime >= segment.end) {
         timeAccumulator += segmentDuration / segment.playback_speed
       } else {
-        // We're in this segment
         const timeInSegment = currentTime - segment.start
         timeAccumulator += timeInSegment / segment.playback_speed
       }
@@ -139,7 +138,6 @@ const VideoPlayer = ({
     return timeAccumulator
   }
 
-  // Calculate total speed adjusted duration
   const calculateSpeedAdjustedDuration = () => {
     return segments.reduce((total, segment) => {
       const segmentDuration = segment.end - segment.start
@@ -147,27 +145,22 @@ const VideoPlayer = ({
     }, 0)
   }
 
-  // Update playback speed based on current time
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     const video = e.currentTarget
     const currentTime = video.currentTime
     setCurrentTime(currentTime)
     
-    // Only adjust speed and calculations for turbo mode
     if (type === 'turbo') {
-      // Find the current segment
       const currentSegment = segments.find(
         seg => currentTime >= seg.start && currentTime < seg.end
       )
       
       if (currentSegment) {
-        // Only update if speed needs to change
         if (video.playbackRate !== currentSegment.playback_speed) {
           video.playbackRate = currentSegment.playback_speed
         }
       }
 
-      // Update speed adjusted time
       setSpeedAdjustedTime(calculateSpeedAdjustedTime(currentTime))
     }
   }
@@ -177,7 +170,6 @@ const VideoPlayer = ({
     const actualDuration = video.duration;
     setDuration(actualDuration);
     
-    // Report actual duration to parent component if this is the original video
     if (type === 'original' && onDurationLoaded) {
       onDurationLoaded(actualDuration);
     }
@@ -238,30 +230,30 @@ const VideoPlayer = ({
   ) : null
 }
 
-export default function VideoPage() {
-  const originalVideoRef = useRef<HTMLVideoElement>(null)
-  const turboVideoRef = useRef<HTMLVideoElement>(null)
-  const [originalVideo, setOriginalVideo] = useState<VideoState>({ url: null, error: null })
-  const [turboVideo, setTurboVideo] = useState<VideoState>({ url: null, error: null })
-  const [currentFlashcard, setCurrentFlashcard] = useState(0)
-  const [showAnswer, setShowAnswer] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData)
-  const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('original')
-  const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [actualVideoDuration, setActualVideoDuration] = useState<number | null>(null)
+export default function VideoJobPage() { // Renamed component for clarity
+  const params = useParams(); // Get URL parameters
+  const jobId = params.jobId as string; // Extract the jobId
 
-  // Handle video duration loaded from metadata
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lessonData, setLessonData] = useState<LessonData>(defaultLessonData);
+  const [originalVideo, setOriginalVideo] = useState<VideoState>({ url: null, error: null });
+  const [turboVideo, setTurboVideo] = useState<VideoState>({ url: null, error: null });
+
+  const originalVideoRef = useRef<HTMLVideoElement>(null);
+  const turboVideoRef = useRef<HTMLVideoElement>(null);
+  const [currentFlashcard, setCurrentFlashcard] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('original');
+  const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
+  const [actualVideoDuration, setActualVideoDuration] = useState<number | null>(null);
+
   const handleVideoDurationLoaded = (duration: number) => {
     console.log(`Actual video duration loaded: ${duration}s`);
     setActualVideoDuration(duration);
     
-    // Update the lesson data with the actual video duration
     setLessonData(prev => {
-      // Only update if it's actually different
-      if (Math.abs(prev.stats.total_duration - duration) > 1) { // Allow 1s difference
-        // Calculate new time saved percentage based on actual duration
+      if (Math.abs(prev.stats.total_duration - duration) > 1) {
         const adjusted_time = prev.segments.reduce((sum, segment) => 
           sum + (segment.end - segment.start) / segment.playback_speed, 0);
         const time_saved_percentage = ((duration - adjusted_time) / duration) * 100;
@@ -280,93 +272,75 @@ export default function VideoPage() {
   };
 
   useEffect(() => {
-    const loadData = () => {
-      try {
-        // Load video URLs
-        const originalUrl = sessionStorage.getItem("videoUrl")
-        // For now, using the same URL for both original and turbo
-        const turboUrl = sessionStorage.getItem("videoUrl") // Use videoUrl not turboUrl
-        
-        console.log("Loading URLs from session storage:", {
-          originalUrl,
-          turboUrl,
-          originalExists: !!originalUrl,
-          turboExists: !!turboUrl
-        })
+    if (jobId) {
+      setIsLoading(true);
+      setError(null);
+      console.log(`Video page loading data for job: ${jobId}`);
 
-        if (!originalUrl && !turboUrl) {
-          console.error("No video URLs found in session storage")
-        }
-        
-        setOriginalVideo({ url: originalUrl, error: null })
-        setTurboVideo({ url: turboUrl, error: null })
-
-        // Load lesson data
-        const storedLessonData = sessionStorage.getItem("lessonData")
-        if (storedLessonData) {
-          const parsedData = JSON.parse(storedLessonData)
-          setLessonData({
-            summary: parsedData.summary || "",
-            keyPoints: parsedData.keyPoints || [],
-            flashcards: parsedData.flashcards || [],
-            transcript: parsedData.transcript || "",
-            segments: parsedData.segments || [],
-            stats: {
-              total_segments: parsedData.stats?.total_segments || 0,
-              skippable_segments: parsedData.stats?.skippable_segments || 0,
-              total_duration: parsedData.stats?.total_duration || 0,
-              skippable_duration: parsedData.stats?.skippable_duration || 0,
-              skippable_percentage: parsedData.stats?.skippable_percentage || 0,
-              time_saved_percentage: parsedData.stats?.time_saved_percentage || 0
-            }
-          })
-        }
-      } catch (error) {
-        console.error('Error loading data from session storage:', error)
-      }
-    }
-
-    loadData()
-
-    // Add storage event listener to handle updates
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === "videoUrl") {
-        setOriginalVideo(prev => ({ ...prev, url: event.newValue }))
-        // Also update turbo video to use the same URL
-        setTurboVideo(prev => ({ ...prev, url: event.newValue }))
-      } else if (event.key === "lessonData") {
+      const fetchData = async () => {
         try {
-          const newData = event.newValue ? JSON.parse(event.newValue) : defaultLessonData
-          if (newData) {
-            setLessonData({
-              summary: newData.summary || "",
-              keyPoints: newData.keyPoints || [],
-              flashcards: newData.flashcards || [],
-              transcript: newData.transcript || "",
-              segments: newData.segments || [],
-              stats: {
-                total_segments: newData.stats?.total_segments || 0,
-                skippable_segments: newData.stats?.skippable_segments || 0,
-                total_duration: newData.stats?.total_duration || 0,
-                skippable_duration: newData.stats?.skippable_duration || 0,
-                skippable_percentage: newData.stats?.skippable_percentage || 0,
-                time_saved_percentage: newData.stats?.time_saved_percentage || 0
-              }
-            })
+          const response = await fetch(`/api/process-status?jobId=${jobId}`);
+          
+          if (!response.ok) {
+             const errorText = await response.text();
+             throw new Error(`Failed to fetch job data (Status: ${response.status}): ${errorText}`);
           }
-        } catch (error) {
-          console.error('Error parsing updated lesson data:', error)
-        }
-      }
-    }
 
-    window.addEventListener('storage', handleStorageChange)
-    return () => window.removeEventListener('storage', handleStorageChange)
-  }, [])
+          const result = await response.json();
+
+          if (result.status === 'complete' && result.data) {
+            console.log('Received data for video page:', result.data);
+            
+            setLessonData({
+              summary: result.data.summary || "",
+              keyPoints: result.data.keyPoints || [],
+              flashcards: result.data.flashcards || [],
+              transcript: result.data.transcript || "",
+              segments: result.data.segments || [],
+              stats: result.data.stats ? {
+                total_segments: result.data.stats.total_segments || 0,
+                skippable_segments: result.data.stats.skippable_segments || 0,
+                total_duration: result.data.stats.total_duration || 0,
+                skippable_duration: result.data.stats.skippable_duration || 0,
+                skippable_percentage: result.data.stats.skippable_percentage || 0,
+                time_saved_percentage: result.data.stats.time_saved_percentage || 0
+              } : defaultLessonData.stats
+            });
+
+            if (!result.data.originalUrl) {
+              console.error("Processing complete but originalUrl is missing in data.");
+              setError("Video URL is missing in the processing results.");
+            }
+            setOriginalVideo({ url: result.data.originalUrl || null, error: null });
+            setTurboVideo({ url: result.data.originalUrl || null, error: null }); 
+
+          } else if (result.status === 'processing') {
+             setError('Processing is still in progress. Please wait and refresh.');
+          } else if (result.status === 'error') {
+             setError(`Processing failed: ${result.message}`);
+          } else if (result.status === 'not_found') {
+             setError('Video processing data not found for this ID.');
+          } else {
+             setError('Failed to load video data: Invalid status or data missing.');
+             console.error("Unexpected result structure:", result);
+          }
+        } catch (fetchError) {
+          console.error('Error fetching video data:', fetchError);
+          setError(fetchError instanceof Error ? fetchError.message : 'An unknown error occurred while fetching data.');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      fetchData();
+    } else {
+      setError('Job ID is missing in the URL.');
+      setIsLoading(false);
+    }
+  }, [jobId]);
 
   useEffect(() => {
     if (lessonData.segments.length > 0) {
-      // Always use actual video duration when available, otherwise calculate from segments
       const total_duration = actualVideoDuration || 
         lessonData.segments.reduce((sum, segment) => sum + (segment.end - segment.start), 0);
       
@@ -376,19 +350,17 @@ export default function VideoPage() {
         segment.can_skip ? sum + (segment.end - segment.start) : sum, 0);
       const skippable_percentage = total_duration ? (skippable_duration / total_duration) * 100 : 0;
       
-      // Calculate time saved based on playback speeds
       const adjusted_time = lessonData.segments.reduce((sum, segment) => 
         sum + (segment.end - segment.start) / segment.playback_speed, 0);
       const time_saved_percentage = total_duration ? ((total_duration - adjusted_time) / total_duration) * 100 : 0;
 
-      // Only update if stats have changed
       if (
         lessonData.stats.total_segments !== total_segments ||
         lessonData.stats.skippable_segments !== skippable_segments ||
-        Math.abs(lessonData.stats.total_duration - total_duration) > 1 || // Allow 1s difference
-        Math.abs(lessonData.stats.skippable_duration - skippable_duration) > 1 || // Allow 1s difference
-        Math.abs(lessonData.stats.skippable_percentage - skippable_percentage) > 0.1 || // Allow 0.1% difference
-        Math.abs(lessonData.stats.time_saved_percentage - time_saved_percentage) > 0.1 // Allow 0.1% difference
+        Math.abs(lessonData.stats.total_duration - total_duration) > 1 ||
+        Math.abs(lessonData.stats.skippable_duration - skippable_duration) > 1 ||
+        Math.abs(lessonData.stats.skippable_percentage - skippable_percentage) > 0.1 ||
+        Math.abs(lessonData.stats.time_saved_percentage - time_saved_percentage) > 0.1
       ) {
         setLessonData(prev => ({
           ...prev,
@@ -438,11 +410,35 @@ export default function VideoPage() {
   }
   
 
+  if (isLoading) {
+    return (
+      <main className="flex flex-col items-center justify-center min-h-screen p-6">
+        <LoadingSpinner />
+        <div className="mt-4 text-lg text-gray-400">Loading video data for Job ID: {jobId}...</div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="flex flex-col items-center justify-center min-h-screen p-6 text-center">
+        <div className="text-xl text-red-500 mb-4">Error Loading Video Data</div>
+        <div className="text-md text-gray-300 mb-6">{error}</div>
+        <Link href="/" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+          Go back to Upload
+        </Link>
+      </main>
+    );
+  }
+
   if (!originalVideo.url && !turboVideo.url) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen p-6">
-        <div className="text-xl text-gray-400 mb-4">No video to display</div>
-        <div className="text-sm text-gray-500">Upload a video first</div>
+        <div className="text-xl text-gray-400 mb-4">Video URL not found</div>
+        <div className="text-sm text-gray-500">The processing completed, but the video link is missing.</div>
+         <Link href="/" className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+          Go back to Upload
+        </Link>
       </div>
     )
   }
@@ -450,7 +446,6 @@ export default function VideoPage() {
   return (
     <main className="min-h-screen p-4 md:p-8">
       <div className="w-full max-w-6xl mx-auto">
-      {/* Branding Header */}
       <Link href="/">
         <div className="w-full flex items-center justify-center gap-2 md:gap-4 mb-8 cursor-pointer">
           <div className={`text-2xl md:text-4xl font-medium tracking-tight ${robotoMono.className}`}>min</div>
@@ -463,7 +458,6 @@ export default function VideoPage() {
       </Link>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Left Column */}
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold">Video Lesson</h1>
@@ -493,7 +487,6 @@ export default function VideoPage() {
               </div>
             </div>
             
-            {/* Video Player */}
             <div className="rounded-lg overflow-hidden bg-black">
               <VideoPlayer 
                 type={activeVideo}
@@ -505,10 +498,9 @@ export default function VideoPage() {
               />
             </div>
 
-            {/* Summary */}
             <div className="bg-zinc-800 shadow rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4 text-white">Summary</h2>
-              {isProcessing ? (
+              {isLoading ? (
                 <LoadingPulse />
               ) : (
                 <div className="text-gray-300">
@@ -517,10 +509,9 @@ export default function VideoPage() {
               )}
             </div>
 
-            {/* Key Points */}
             <div className="bg-zinc-800 shadow rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4 text-white">Key Points</h2>
-              {isProcessing ? (
+              {isLoading ? (
                 <LoadingPulse />
               ) : (lessonData?.keyPoints && lessonData.keyPoints.length > 0) ? (
                 <ul className="list-disc list-inside text-gray-300 space-y-2">
@@ -533,10 +524,9 @@ export default function VideoPage() {
               )}
             </div>
 
-            {/* Statistics */}
             <div className="bg-zinc-800 shadow rounded-lg p-6">
               <h2 className="text-xl font-semibold mb-4 text-white">Analysis</h2>
-              {isProcessing ? (
+              {isLoading ? (
                 <LoadingPulse />
               ) : (
                 <div className="space-y-4">
@@ -561,16 +551,14 @@ export default function VideoPage() {
             </div>
           </div>
 
-          {/* Right Column */}
           <div className="space-y-6">
-            {/* Flashcards */}
             <div
               className={`bg-zinc-800 shadow rounded-lg p-6 transition-all duration-300 ${
                 isTranscriptExpanded ? "hidden" : "block"
               }`}
             >
               <h2 className="text-xl font-semibold mb-4 text-white">Flashcards</h2>
-              {isProcessing ? (
+              {isLoading ? (
                 <LoadingPulse />
               ) : (lessonData?.flashcards && lessonData.flashcards.length > 0) ? (
                 <div className="space-y-4">
@@ -615,7 +603,6 @@ export default function VideoPage() {
               )}
             </div>
 
-            {/* Transcript */}
             <div className="bg-zinc-800 shadow rounded-lg">
               <div className="p-6">
                 <div className="flex justify-between items-center mb-4">
@@ -627,7 +614,7 @@ export default function VideoPage() {
                     {isTranscriptExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
                   </button>
                 </div>
-                {isProcessing ? (
+                {isLoading ? (
                   <LoadingPulse />
                 ) : (
                   <div

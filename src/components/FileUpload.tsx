@@ -245,15 +245,37 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           // Store results in sessionStorage
           if (result.data?.originalUrl) {
              sessionStorage.setItem("videoUrl", result.data.originalUrl);
-             sessionStorage.setItem("shortenedUrl", result.data.originalUrl); // Adjust if needed
+             // Assuming the shortened URL is the same for now, adjust if backend provides a different one
+             sessionStorage.setItem("shortenedUrl", result.data.originalUrl); 
           }
+          
+          // *** FIX: Construct lessonData correctly ***
           if (result.data) {
-             const lessonData = { /* ... construct lessonData from result.data ... */ };
+             // Assuming result.data contains transcript, segments, summary, keyPoints, flashcards directly
+             const lessonData = { 
+                transcript: result.data.transcript || "", 
+                segments: result.data.segments || [],
+                summary: result.data.summary || "",
+                keyPoints: result.data.keyPoints || [],
+                flashcards: result.data.flashcards || [],
+                // Add stats if they are part of result.data and needed by the video page
+                // stats: result.data.stats || { ... default stats ... } 
+             };
+             console.log('Saving lessonData to sessionStorage:', lessonData); // Add log to verify
              sessionStorage.setItem("lessonData", JSON.stringify(lessonData));
+             
+             // Call the prop if provided (optional)
              if (onProcessingComplete) {
                 onProcessingComplete(lessonData);
              }
+          } else {
+             console.error("Processing complete but no data received in result.data");
+             // Handle case where data might be missing even on 'complete' status
+             setProgress({ status: 'error', message: 'Processing finished but data is missing.' });
+             setUploading(false);
+             return; // Prevent navigation if data is missing
           }
+
           setProcessedUrl(result.data?.originalUrl || null); // Update state if needed
           setUploading(false); // Allow new uploads now
           router.push('/video'); // Navigate on success

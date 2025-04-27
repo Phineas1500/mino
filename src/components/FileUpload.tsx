@@ -70,6 +70,8 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     setUploadGlow(true)
     setProgress({ status: 'uploading', message: 'Getting upload URL...' })
 
+    let isConflict = false; // Declare isConflict here, outside the try block
+
     try {
       // Create new abort controller for this upload
       uploadAbortController.current = new AbortController()
@@ -147,9 +149,9 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       processAbortController.current = new AbortController()
       let processResponse: Response | undefined
       retries = 3
-      let isConflict = false; // Flag to track 409 conflict
+      // isConflict is already declared outside
 
-      while (retries > 0 && !isConflict) { // Add !isConflict to the loop condition
+      while (retries > 0 && !isConflict) { 
         try {
           const timeout = setTimeout(() => processAbortController.current?.abort(), 300000) // 5-minute timeout
 
@@ -260,12 +262,25 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       
     } catch (error) {
       console.error('Upload/processing failed:', error)
+      // Ensure isConflict is false if we land in the catch block after the loop
+      // (though it should already be false unless the error happened before the loop)
+      isConflict = false; 
       setProgress({ 
         status: 'error', 
         message: error instanceof Error ? error.message : 'Upload failed' 
       })
     } finally {
-      setUploading(false)
+      // Only reset uploading state if it's NOT a conflict 
+      // and the status isn't currently 'processing' or 'uploading'
+      // Check isConflict flag which is set within the try block
+      if (!isConflict) {
+         setUploading(false);
+      }
+      // Alternatively, check the progress state if isConflict isn't accessible
+      // if (progress.status !== 'processing' && progress.status !== 'uploading') {
+      //    setUploading(false);
+      // }
+
       setTimeout(() => setUploadGlow(false), 1000)
       // Clear abort controllers
       uploadAbortController.current = null

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, DragEvent } from "react" // Import DragEvent
 // Add Link icon or similar for the URL input
 import { Upload, Loader2, Link as LinkIcon } from "lucide-react" 
 import { compressVideo, shouldCompress } from '../components/videoCompressor';
@@ -28,7 +28,6 @@ interface ProcessResponse {
 export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video/*" }: FileUploadProps) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null)
-  // Add state for YouTube URL input
   const [youtubeUrl, setYoutubeUrl] = useState(''); 
   const [uploading, setUploading] = useState(false)
   const [processedUrl, setProcessedUrl] = useState<string | null>(null)
@@ -37,12 +36,12 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     message: string
   }>({ status: 'idle', message: '' })
   const [uploadGlow, setUploadGlow] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null); // State to store the job ID
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null); // Ref for the polling timer
-  
-  // Add refs to store abort controllers
+  const [jobId, setJobId] = useState<string | null>(null); 
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null); 
   const uploadAbortController = useRef<AbortController | null>(null)
   const processAbortController = useRef<AbortController | null>(null)
+  // --- State for drag-over visual feedback ---
+  const [isDraggingOver, setIsDraggingOver] = useState(false); 
 
   const handleCancel = () => {
     stopPolling(); // Stop polling on cancel
@@ -55,72 +54,73 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     setUploading(false)
     setFile(null)
     setUploadGlow(false)
+    setIsDraggingOver(false); // Reset drag state on cancel
   }
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // --- Refactor upload logic into a reusable function ---
+  const startUploadProcess = async (selectedFile: File) => {
+    if (!selectedFile || uploading) return; // Prevent processing if no file or already uploading
 
-    const compressedBlob = await shouldCompress(file) 
-      ? await compressVideo(file)
-      : file;
+    setFile(selectedFile); // Keep track of the selected file
+    setUploading(true);
+    setUploadGlow(true);
+    setProgress({ status: 'uploading', message: 'Compressing video (if needed)...' }); // Initial message
 
-    const compressedFile = new File(
-      [compressedBlob], 
-      file.name, 
-      { type: file.type, lastModified: file.lastModified }
-    );
+    let compressedFile: File;
+    try {
+      const compressedBlob = await shouldCompress(selectedFile) 
+        ? await compressVideo(selectedFile)
+        : selectedFile;
+      compressedFile = new File(
+        [compressedBlob], 
+        selectedFile.name, 
+        { type: selectedFile.type, lastModified: selectedFile.lastModified }
+      );
+      setProgress({ status: 'uploading', message: 'Getting upload URL...' });
+    } catch (compressionError) {
+       console.error('Compression failed:', compressionError);
+       setProgress({ status: 'error', message: 'Video compression failed.' });
+       setUploading(false);
+       setUploadGlow(false);
+       return;
+    }
 
-    setFile(compressedFile)
-    setUploading(true)
-    setUploadGlow(true)
-    setProgress({ status: 'uploading', message: 'Getting upload URL...' })
-
-    let isConflict = false; // Declare isConflict here, outside the try block
+    let isConflict = false; 
 
     try {
-      // Create new abort controller for this upload
-      uploadAbortController.current = new AbortController()
+      uploadAbortController.current = new AbortController();
 
-      // Step 1: Get presigned URL with retry logic
+      // Step 1: Get presigned URL 
+      // ... (existing presigned URL logic using compressedFile) ...
       let urlResponse: Response | undefined
       let retries = 3
       while (retries > 0) {
         try {
           urlResponse = await fetch('/api/s3/presigned', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              fileName: compressedFile.name,
-              fileType: compressedFile.type
-            }),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: compressedFile.name, fileType: compressedFile.type }),
             signal: uploadAbortController.current.signal
           })
           if (urlResponse.ok) break
         } catch (error) {
-          if (error instanceof Error && error.name === 'AbortError') {
-            throw new Error('Upload cancelled')
-          }
-          console.warn(`Attempt ${4 - retries} failed, retrying...`)
-          retries--
-          if (retries === 0) throw error
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          if (error instanceof Error && error.name === 'AbortError') throw new Error('Upload cancelled');
+          console.warn(`Attempt ${4 - retries} failed, retrying...`);
+          retries--;
+          if (retries === 0) throw error;
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-
       if (!urlResponse?.ok) {
-        const errorData = await urlResponse?.text()
-        throw new Error(`Failed to get upload URL: ${errorData}`)
+        const errorData = await urlResponse?.text();
+        throw new Error(`Failed to get upload URL: ${errorData}`);
       }
-
-      const { url, fields } = await urlResponse.json()
-      console.log('Received presigned URL:', url)
+      const { url, fields } = await urlResponse.json();
       
-      setProgress({ status: 'uploading', message: 'Uploading to S3...' })
+      setProgress({ status: 'uploading', message: 'Uploading to S3...' });
 
-      // Step 2: Upload to S3 with retry logic and abort signal
+      // Step 2: Upload to S3
+      // ... (existing S3 upload logic using compressedFile) ...
       let uploadResponse: Response | undefined
       retries = 3
       while (retries > 0) {
@@ -128,99 +128,79 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           uploadResponse = await fetch(url, {
             method: 'PUT',
             body: compressedFile,
-            headers: {
-              'Content-Type': compressedFile.type
-            },
+            headers: { 'Content-Type': compressedFile.type },
             signal: uploadAbortController.current.signal
           })
           if (uploadResponse.ok) break
         } catch (error) {
-          if (error instanceof Error && error.name === 'AbortError') {
-            throw new Error('Upload cancelled')
-          }
-          console.warn(`Upload attempt ${4 - retries} failed, retrying...`)
-          retries--
-          if (retries === 0) throw error
-          await new Promise(resolve => setTimeout(resolve, 1000))
+          if (error instanceof Error && error.name === 'AbortError') throw new Error('Upload cancelled');
+          console.warn(`Upload attempt ${4 - retries} failed, retrying...`);
+          retries--;
+          if (retries === 0) throw error;
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-
       if (!uploadResponse?.ok) {
-        const errorText = await uploadResponse?.text()
-        throw new Error(`Failed to upload to S3: ${errorText}`)
+        const errorText = await uploadResponse?.text();
+        throw new Error(`Failed to upload to S3: ${errorText}`);
       }
 
       // Step 3: Initiate video processing
+      // ... (existing processing initiation logic using fields.key) ...
       setProgress({ status: 'processing', message: 'Initiating processing...' });
-      processAbortController.current = new AbortController(); // Keep abort controller if needed for initial request
-      
+      processAbortController.current = new AbortController(); 
       let initialProcessResponse: Response;
       try {
-        // Make the initial request to start processing
         initialProcessResponse = await fetch('/api/process-video', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileKey: fields.key }),
-          signal: processAbortController.current.signal // Optional: timeout for initial request
+          signal: processAbortController.current.signal
         });
-
         if (initialProcessResponse.status === 409) {
           console.warn('Processing conflict detected (409)');
-          setProgress({ 
-            status: 'error', 
-            message: 'This video is already being processed. Please wait.' 
-          });
+          setProgress({ status: 'error', message: 'This video is already being processed. Please wait.' });
           isConflict = true; 
-          // No need to return here yet, let finally block handle cleanup
         } else if (initialProcessResponse.status === 202) {
-          // --- Processing Accepted ---
           const { jobId: receivedJobId } = await initialProcessResponse.json();
-          if (!receivedJobId) {
-            throw new Error('Processing initiated but no Job ID received.');
-          }
-          setJobId(receivedJobId); // Store the job ID
-          setProgress({ status: 'processing', message: 'Processing video... (0%)' }); // Update message
-          startPolling(receivedJobId); // Start polling for status
-          // Don't navigate yet, wait for polling result
+          if (!receivedJobId) throw new Error('Processing initiated but no Job ID received.');
+          setJobId(receivedJobId); 
+          setProgress({ status: 'processing', message: 'Processing video... (0%)' }); 
+          startPolling(receivedJobId); 
         } else {
-          // Handle other unexpected initial responses (e.g., 500)
           const errorText = await initialProcessResponse.text();
           throw new Error(`Failed to initiate processing (Status: ${initialProcessResponse.status}): ${errorText}`);
         }
-
       } catch (error) {
-         // Handle fetch errors for the initial request
-         if (error instanceof Error && error.name === 'AbortError') {
-           throw new Error('Initiating processing cancelled or timed out.');
-         }
+         if (error instanceof Error && error.name === 'AbortError') throw new Error('Initiating processing cancelled or timed out.');
          console.error('Error initiating processing:', error);
-         // Rethrow or handle as appropriate
          throw error; 
       }
       
     } catch (error) {
       console.error('Upload/processing failed:', error);
-      // Stop polling if an error occurs during the setup phase
       stopPolling(); 
-      // isConflict might be true or false here
-      setProgress({ 
-        status: 'error', 
-        message: error instanceof Error ? error.message : 'Upload failed' 
-      });
+      setProgress({ status: 'error', message: error instanceof Error ? error.message : 'Upload failed' });
     } finally {
-      // Only reset uploading state if it's NOT a conflict AND polling hasn't started
       if (!isConflict && !jobId) { 
          setUploading(false);
       }
-      // Keep uploadGlow logic as is or adjust
       setTimeout(() => setUploadGlow(false), 1000);
-      // Clear abort controllers (maybe keep processAbortController if used for polling?)
       uploadAbortController.current = null;
-      // processAbortController.current = null; // Decide if needed for polling cancel
     }
-  }
+  };
 
-  // --- NEW: Handler for YouTube URL submission ---
+  // --- Original handler for file input change ---
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      startUploadProcess(file); // Call the refactored function
+    }
+    // Reset the input value to allow selecting the same file again
+    e.target.value = ''; 
+  };
+
+  // --- Handler for YouTube URL submission ---
   const handleUrlSubmit = async () => {
     if (!youtubeUrl || uploading) return; // Prevent submission if empty or already processing
 
@@ -289,6 +269,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     }
   };
 
+  // --- Polling functions ---
   const pollStatus = async (currentJobId: string) => {
     console.log(`Polling status for job: ${currentJobId}`);
     try {
@@ -399,6 +380,42 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     };
   }, []); // Empty dependency array ensures this runs only on mount and unmount
 
+  // --- Drag and Drop Handlers ---
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); // Necessary to allow dropping
+    e.stopPropagation();
+    if (!uploading) { // Only show feedback if not already uploading
+        setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false); // Turn off visual feedback
+
+    if (uploading) return; // Don't process drop if already uploading
+
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      const droppedFile = droppedFiles[0];
+      // Optional: Check file type against 'accept' prop
+      if (accept !== "*" && !accept.split(',').some(type => droppedFile.type.startsWith(type.trim().replace('*', '')))) {
+          console.warn(`Dropped file type (${droppedFile.type}) does not match accepted types (${accept})`);
+          setProgress({ status: 'error', message: `Invalid file type. Please drop a video file (${accept}).` });
+          return;
+      }
+      console.log('File dropped:', droppedFile.name);
+      startUploadProcess(droppedFile); // Use the refactored upload function
+    }
+  };
+
   return (
     <div className="flex flex-col items-center gap-8 w-full">
       {uploadGlow && (
@@ -406,13 +423,21 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           <div className="w-[500%] h-[150%] rounded-full bg-blue-300/30 blur-3xl scale-0 animate-[glow_1s_ease-out]"></div>
         </div>
       )}
-      <div className="relative w-full max-w-4xl bg-black aspect-[36/9] border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8">
+      {/* --- Add drag event handlers to this div --- */}
+      <div 
+        className={`relative w-full max-w-4xl bg-black aspect-[36/9] border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8 ${
+          isDraggingOver ? 'border-blue-500 border-dashed ring-2 ring-blue-500 ring-offset-2 ring-offset-black' : '' // Add visual feedback class
+        }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <input
           type="file"
           id="video-upload"
           className="hidden"
           accept={accept}
-          onChange={handleUpload}
+          onChange={handleFileInputChange} // Use the specific handler for input change
           disabled={uploading}
         />
         <label
@@ -425,9 +450,11 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
             <Upload className="w-8 h-8 mb-4 text-muted-foreground" />
           )}
           <span className="text-base mb-1">
-            {progress.status === 'idle' 
-              ? "Drop your lecture video here"
-              : progress.message
+            {isDraggingOver 
+              ? "Drop the video file here" // Message when dragging over
+              : progress.status === 'idle' 
+                ? "Drop your lecture video here or click to browse" // Updated idle message
+                : progress.message
             }
           </span>
           <span className="text-sm text-muted-foreground">

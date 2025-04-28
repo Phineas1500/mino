@@ -1,11 +1,23 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
     ignoreDuringBuilds: true,
+  },
+  async redirects() {
+    return [
+      {
+        source: "/:path*", // Match anything
+        has: [
+          {
+            type: "host",
+            value: "www.minomize.com",
+          },
+        ],
+        destination: "https://minomize.com/:path*", // Redirect and keep the path
+        permanent: true, // 308 Permanent Redirect
+      },
+    ];
   },
 };
 

@@ -1,9 +1,8 @@
 "use client"
 import Link from "next/link";
-// Add useMemo to imports
-import { useState, useEffect, useRef, useMemo } from "react" 
+import { useState, useEffect, useRef, useMemo, useCallback } from "react" 
 import { useParams } from 'next/navigation'; 
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play, Zap } from "lucide-react"
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play, Zap, LocateFixed, LocateOff } from "lucide-react" 
 import { Roboto_Mono } from "next/font/google"
 
 interface Segment {
@@ -44,11 +43,21 @@ interface VideoState {
   error: string | null
 }
 
-// --- Add new TimeMapPoint interface ---
 interface TimeMapPoint {
   actualTime: number;
   adjustedTime: number;
   segmentSpeed: number; // Speed *starting* at this actualTime
+}
+
+interface VideoPlayerProps {
+  type: 'original' | 'turbo'
+  video: VideoState
+  onError: (type: 'original' | 'turbo', error: string) => void
+  segments: Segment[] // Keep segments for playbackRate adjustment
+  precalculatedTimes: TimeMapPoint[] // <-- Add prop
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>
+  onDurationLoaded?: (duration: number) => void
+  onTimeUpdateActual?: (time: number) => void; // <-- Add this prop
 }
 
 const defaultLessonData: LessonData = {
@@ -92,24 +101,15 @@ function formatTimestamp(seconds: number): string {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`
 }
 
-interface VideoPlayerProps {
-  type: 'original' | 'turbo'
-  video: VideoState
-  onError: (type: 'original' | 'turbo', error: string) => void
-  segments: Segment[] // Keep segments for playbackRate adjustment
-  precalculatedTimes: TimeMapPoint[] // <-- Add prop
-  videoRef: React.MutableRefObject<HTMLVideoElement | null>
-  onDurationLoaded?: (duration: number) => void
-}
-
 const VideoPlayer = ({ 
   type, 
   video, 
   onError,
-  segments, // Still needed for setting video.playbackRate
-  precalculatedTimes, // <-- Receive prop
+  segments, 
+  precalculatedTimes, 
   videoRef,
-  onDurationLoaded
+  onDurationLoaded,
+  onTimeUpdateActual // <-- Destructure the new prop
 }: VideoPlayerProps) => {
   useEffect(() => {
     console.log('VideoPlayer received segments prop:', JSON.stringify(segments || [], null, 2));
@@ -119,7 +119,6 @@ const VideoPlayer = ({
   const [duration, setDuration] = useState(0)
   const [speedAdjustedTime, setSpeedAdjustedTime] = useState(0)
 
-  // --- Calculate speedAdjustedDuration using useMemo ---
   const speedAdjustedDuration = useMemo(() => {
       return precalculatedTimes.length > 0
           ? precalculatedTimes[precalculatedTimes.length - 1].adjustedTime
@@ -138,79 +137,59 @@ const VideoPlayer = ({
     onError(type, errorMessage)
   }
 
-  // --- REVISED calculateSpeedAdjustedTime ---
-  const calculateSpeedAdjustedTime = (currentActualTime: number): number => { // Renamed input variable
+  const calculateSpeedAdjustedTime = (currentActualTime: number): number => {
     if (precalculatedTimes.length === 0) {
-        return 0; // No map available
+        return 0;
     }
 
-    // Find the interval in the precalculated map where currentActualTime falls
     let basePoint: TimeMapPoint | null = null;
-    // Iterate forward to find the last point whose actualTime is <= currentActualTime
     for (let i = 0; i < precalculatedTimes.length; i++) {
         if (precalculatedTimes[i].actualTime <= currentActualTime) {
             basePoint = precalculatedTimes[i];
         } else {
-            // Stop as soon as we pass the currentActualTime
             break; 
         }
     }
 
     if (!basePoint) {
-       // This should only happen if currentActualTime is negative or map is empty (handled above)
        console.warn(`Could not find base point for currentActualTime: ${currentActualTime}. Using first segment speed.`);
        const firstSpeed = precalculatedTimes[0]?.segmentSpeed || 1;
-       return currentActualTime / firstSpeed; // Estimate based on first segment speed
+       return currentActualTime / firstSpeed;
     }
 
-    // Time elapsed since the last calculated actualTime point
     const timeSinceBasePoint = currentActualTime - basePoint.actualTime;
-
-    // Speed during the current interval (stored at the base point)
-    // This speed applies from basePoint.actualTime onwards until the next point
     const currentSpeed = basePoint.segmentSpeed > 0 ? basePoint.segmentSpeed : 1;
-
-    // Adjusted time elapsed since the base point
     const adjustedTimeSinceBasePoint = timeSinceBasePoint / currentSpeed;
-
-    // Final adjusted time
     const finalAdjustedTime = basePoint.adjustedTime + adjustedTimeSinceBasePoint;
-
-    // --- Add focused logging for debugging ---
-    // console.log(`CalcAdjTime: Current=${currentActualTime.toFixed(2)}, BaseActual=${basePoint.actualTime.toFixed(2)}, BaseAdj=${basePoint.adjustedTime.toFixed(2)}, Speed=${currentSpeed}, AdjSinceBase=${adjustedTimeSinceBasePoint.toFixed(2)}, FinalAdj=${finalAdjustedTime.toFixed(2)}`);
 
     return finalAdjustedTime;
   };
 
   const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
     const video = e.currentTarget;
-    const currentActualTime = video.currentTime; // Use a different variable name
-    setCurrentTime(currentActualTime); // Update state for original time display if needed
+    const currentActualTime = video.currentTime;
+    setCurrentTime(currentActualTime);
+
+    if (onTimeUpdateActual) {
+      onTimeUpdateActual(currentActualTime);
+    }
 
     if (type === 'turbo') {
-        // --- Adjust Playback Rate (uses original segments array) ---
-        // Find segment based on actual time
         const currentSegment = segments.find(
-            // Use nullish coalescing for safety
             seg => currentActualTime >= (seg.start ?? 0) && currentActualTime < (seg.end ?? 0) 
         );
         
-        // Determine target speed, default to 1 if no segment found or speed invalid
-        // Check if currentSegment exists before accessing its properties
-        let targetSpeed = 1; // Default speed
+        let targetSpeed = 1;
         if (currentSegment && currentSegment.playback_speed > 0) {
             targetSpeed = currentSegment.playback_speed;
         }
         
         if (video.playbackRate !== targetSpeed) {
-            // console.log(`Adjusting playbackRate to ${targetSpeed} at ${currentActualTime.toFixed(2)}s`);
             video.playbackRate = targetSpeed;
         }
 
-        // --- Calculate and Set Displayed Adjusted Time using the new function ---
         setSpeedAdjustedTime(calculateSpeedAdjustedTime(currentActualTime));
     } else {
-        // Ensure original video plays at normal speed
         if (video.playbackRate !== 1) {
             video.playbackRate = 1;
         }
@@ -271,7 +250,6 @@ const VideoPlayer = ({
           <span className="text-gray-400">Actual: </span>
           <span className="text-white">{formatTime(speedAdjustedTime)}</span>
           <span className="text-gray-400"> / </span>
-          {/* Use the calculated duration from useMemo */}
           <span className="text-white">{formatTime(speedAdjustedDuration)}</span>
         </div>
       )}
@@ -296,9 +274,96 @@ export default function VideoJobPage() {
   const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('original');
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
   const [actualVideoDuration, setActualVideoDuration] = useState<number | null>(null);
-
-  // --- Add new state for precalculated times ---
   const [precalculatedTimes, setPrecalculatedTimes] = useState<TimeMapPoint[]>([]); 
+
+  const [currentVideoTime, setCurrentVideoTime] = useState(0); // Track actual video time
+  const [activeSegmentIndex, setActiveSegmentIndex] = useState(-1);
+  const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
+  const transcriptContainerRef = useRef<HTMLDivElement>(null);
+  const segmentRefs = useRef<(HTMLDivElement | null)[]>([]); // Array to hold refs for each segment div
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for detecting end of user scroll
+  const programmaticScroll = useRef(false); 
+
+  const handleVideoTimeUpdate = useCallback((time: number) => {
+    setCurrentVideoTime(time);
+  }, []);
+
+  useEffect(() => {
+    const index = lessonData.segments.findIndex(
+      seg => currentVideoTime >= (seg.start ?? 0) && currentVideoTime < (seg.end ?? 0)
+    );
+    let newIndex = -1;
+    if (index !== -1) {
+      newIndex = index;
+    } else if (lessonData.segments.length > 0 && currentVideoTime < (lessonData.segments[0].start ?? 0)) {
+       newIndex = 0;
+    } else if (lessonData.segments.length > 0 && currentVideoTime >= (lessonData.segments[lessonData.segments.length - 1].start ?? 0)) {
+       newIndex = lessonData.segments.length - 1;
+    }
+
+    if (newIndex !== activeSegmentIndex) {
+      setActiveSegmentIndex(newIndex);
+    }
+  }, [currentVideoTime, lessonData.segments, activeSegmentIndex]);
+
+  useEffect(() => {
+    if (isAutoScrollEnabled && activeSegmentIndex !== -1) {
+      const activeSegmentElement = segmentRefs.current[activeSegmentIndex];
+      if (activeSegmentElement && transcriptContainerRef.current) {
+        const containerRect = transcriptContainerRef.current.getBoundingClientRect();
+        const elementRect = activeSegmentElement.getBoundingClientRect();
+
+        if (elementRect.top < containerRect.top + 50 || elementRect.bottom > containerRect.bottom - 50) {
+            programmaticScroll.current = true; 
+            
+            activeSegmentElement.scrollIntoView({
+              behavior: 'smooth',
+              block: 'nearest', 
+            });
+        }
+      }
+    }
+  }, [activeSegmentIndex, isAutoScrollEnabled]); 
+
+  const handleTranscriptScroll = () => {
+    if (programmaticScroll.current) {
+      programmaticScroll.current = false; 
+      return; 
+    }
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+    }, 150); 
+  };
+
+  const toggleAutoScroll = () => {
+    const newState = !isAutoScrollEnabled;
+    console.log(`[toggleAutoScroll] Setting auto-scroll to: ${newState}`);
+    setIsAutoScrollEnabled(newState); // Update the state
+    
+    if (newState && activeSegmentIndex !== -1) {
+      const activeSegmentElement = segmentRefs.current[activeSegmentIndex];
+      if (activeSegmentElement) {
+          console.log(`[toggleAutoScroll] Scrolling segment ${activeSegmentIndex} into view.`);
+          programmaticScroll.current = true; 
+          activeSegmentElement.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'nearest' 
+          });
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleVideoDurationLoaded = (duration: number) => {
     console.log(`Actual video duration loaded: ${duration}s`);
@@ -342,7 +407,6 @@ export default function VideoJobPage() {
 
           if (result.status === 'complete' && result.data) {
             console.log('Received data for video page:', result.data);
-            // *** ADD THIS LOG ***
             console.log('Segments received from API:', JSON.stringify(result.data.segments || [], null, 2)); 
             
             setLessonData({
@@ -393,64 +457,47 @@ export default function VideoJobPage() {
     }
   }, [jobId]);
 
-  // --- Add useEffect for pre-calculating times ---
   useEffect(() => {
     if (lessonData.segments && lessonData.segments.length > 0) {
       console.log("Recalculating time map due to segment change...");
       const timeMap: TimeMapPoint[] = [];
       let cumulativeAdjustedTime = 0;
 
-      // Ensure segments are sorted by start time (important!)
       const sortedSegments = [...lessonData.segments].sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
 
-      // Start point
       timeMap.push({
         actualTime: 0,
         adjustedTime: 0,
-        // Speed of the first segment (or 1 if no segments/invalid speed)
         segmentSpeed: sortedSegments[0]?.playback_speed > 0 ? sortedSegments[0].playback_speed : 1, 
       });
 
       for (let i = 0; i < sortedSegments.length; i++) {
         const segment = sortedSegments[i];
-        // Use nullish coalescing for safety, default to 0
         const segStart = segment.start ?? 0; 
         const segEnd = segment.end ?? 0;
-        // Ensure speed is positive, default to 1
         const segSpeed = segment.playback_speed > 0 ? segment.playback_speed : 1; 
-        // Ensure duration is non-negative
         const segmentDuration = Math.max(0, segEnd - segStart); 
 
-        // Calculate adjusted duration for this segment
         const adjustedSegmentDuration = segmentDuration / segSpeed;
         cumulativeAdjustedTime += adjustedSegmentDuration;
 
-        // Determine the speed of the *next* segment (or 1 if it's the last)
         const nextSegmentSpeed = sortedSegments[i + 1]?.playback_speed > 0 
             ? sortedSegments[i + 1].playback_speed 
             : 1; 
 
-        // Add a point at the END of this segment
-        // Check if the next segment starts exactly where this one ends to avoid duplicate time points
         const nextSegStart = sortedSegments[i + 1]?.start ?? Infinity;
         
-        if (segEnd < nextSegStart) { // Only add if there's a gap or it's the last segment
-             // Check if this point already exists (e.g., zero-duration segment)
+        if (segEnd < nextSegStart) {
              if (timeMap.length === 0 || timeMap[timeMap.length - 1].actualTime < segEnd) {
                  timeMap.push({
                     actualTime: segEnd,
                     adjustedTime: cumulativeAdjustedTime,
-                    // The speed starting *at* segEnd is the speed of the next segment
                     segmentSpeed: nextSegmentSpeed, 
                  });
              } else if (timeMap[timeMap.length - 1].actualTime === segEnd) {
-                 // If times are identical (e.g. back-to-back segments), update the speed for the boundary
                  timeMap[timeMap.length - 1].segmentSpeed = nextSegmentSpeed;
              }
         } else {
-            // If next segment starts exactly at segEnd, the speed update is handled
-            // when processing the next segment's start point implicitly, or
-            // if the previous push already added this time point, update its speed.
              if (timeMap.length > 0 && timeMap[timeMap.length - 1].actualTime === segEnd) {
                  timeMap[timeMap.length - 1].segmentSpeed = nextSegmentSpeed;
              }
@@ -459,9 +506,9 @@ export default function VideoJobPage() {
       console.log("Precalculated Time Map:", JSON.stringify(timeMap, null, 2));
       setPrecalculatedTimes(timeMap);
     } else {
-      setPrecalculatedTimes([]); // Reset if no segments
+      setPrecalculatedTimes([]);
     }
-  }, [lessonData.segments]); // Dependency array
+  }, [lessonData.segments]);
 
   useEffect(() => {
     if (lessonData.segments.length > 0) {
@@ -617,9 +664,10 @@ export default function VideoJobPage() {
                 video={activeVideo === 'original' ? originalVideo : turboVideo}
                 onError={handleVideoError}
                 segments={lessonData.segments}
-                precalculatedTimes={precalculatedTimes} // <-- Pass down the new state
+                precalculatedTimes={precalculatedTimes} 
                 videoRef={activeVideo === 'original' ? originalVideoRef : turboVideoRef}
                 onDurationLoaded={handleVideoDurationLoaded}
+                onTimeUpdateActual={handleVideoTimeUpdate} // <-- Pass callback
               />
             </div>
 
@@ -732,26 +780,40 @@ export default function VideoJobPage() {
               <div className="p-6">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-xl font-semibold text-white">Transcript</h2>
-                  <button
-                    onClick={() => setIsTranscriptExpanded(!isTranscriptExpanded)}
-                    className="p-2 text-gray-400 hover:text-white rounded-lg"
-                  >
-                    {isTranscriptExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={toggleAutoScroll} // Use the correct toggle function
+                      title={isAutoScrollEnabled ? "Disable Auto-Scroll" : "Enable Auto-Scroll"}
+                      className="p-2 text-gray-400 hover:text-white rounded-lg"
+                    >
+                      {isAutoScrollEnabled ? <LocateFixed className="w-5 h-5 text-blue-400" /> : <LocateOff className="w-5 h-5" />}
+                    </button>
+                    <button
+                      onClick={() => setIsTranscriptExpanded(!isTranscriptExpanded)}
+                      className="p-2 text-gray-400 hover:text-white rounded-lg"
+                      title={isTranscriptExpanded ? "Collapse Transcript" : "Expand Transcript"}
+                    >
+                      {isTranscriptExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
                 {isLoading ? (
                   <LoadingPulse />
                 ) : (
                   <div
-                    className={`space-y-4 overflow-y-auto transition-all duration-300 ${
+                    ref={transcriptContainerRef}
+                    onScroll={handleTranscriptScroll} // Keep handler attached
+                    className={`space-y-4 overflow-y-auto transition-all duration-300 scroll-smooth ${
                       isTranscriptExpanded ? "h-[calc(100vh-16rem)]" : "h-[400px]"
                     }`}
                   >
                     {lessonData.segments.map((segment, index) => (
                       <div 
+                        ref={el => { segmentRefs.current[index] = el; }} 
                         key={index} 
-                        className={`group p-4 rounded-lg ${
-                          segment.can_skip ? 'bg-zinc-700/50' : 'bg-zinc-700'
+                        className={`group p-4 rounded-lg transition-colors duration-200 ${
+                          index === activeSegmentIndex ? 'bg-zinc-600' : 
+                          segment.can_skip ? 'bg-zinc-700/50 hover:bg-zinc-600/60' : 'bg-zinc-700 hover:bg-zinc-600'
                         }`}
                       >
                         <div className="flex items-center gap-2 mb-2">

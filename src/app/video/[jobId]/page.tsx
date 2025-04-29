@@ -1,9 +1,12 @@
 "use client"
-import Link from "next/link";
-import { useState, useEffect, useRef, useMemo, useCallback } from "react" 
-import { useParams } from 'next/navigation'; 
-import { ChevronLeft, ChevronRight, Maximize2, Minimize2, Play, Zap, LocateFixed, LocateOff } from "lucide-react" 
-import { Roboto_Mono } from "next/font/google"
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation'; // Import useRouter
+import Link from 'next/link';
+import { Roboto_Mono } from "next/font/google";
+import { 
+  Play, Zap, ChevronLeft, ChevronRight, Copy, Check, Share2, 
+  LocateFixed, LocateOff, Minimize2, Maximize2 
+} from 'lucide-react'; 
 
 interface Segment {
   start: number
@@ -260,6 +263,7 @@ const VideoPlayer = ({
 export default function VideoJobPage() { 
   const params = useParams(); 
   const jobId = params.jobId as string; 
+  const router = useRouter(); // Use router if needed, or window.location for URL
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -283,6 +287,7 @@ export default function VideoJobPage() {
   const segmentRefs = useRef<(HTMLDivElement | null)[]>([]); // Array to hold refs for each segment div
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for detecting end of user scroll
   const programmaticScroll = useRef(false); 
+  const [isCopied, setIsCopied] = useState(false); // State for copy feedback
 
   const handleVideoTimeUpdate = useCallback((time: number) => {
     setCurrentVideoTime(time);
@@ -580,6 +585,20 @@ export default function VideoJobPage() {
     setShowAnswer(false)
   }
   
+  // --- Add function to handle copying the URL ---
+  const handleShare = async () => {
+    const urlToCopy = window.location.href; // Get current page URL
+    try {
+      await navigator.clipboard.writeText(urlToCopy);
+      setIsCopied(true);
+      console.log('Page URL copied to clipboard:', urlToCopy);
+      setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy URL:', err);
+      // Optionally show an error message to the user
+    }
+  };
+  // --- End Add ---
 
   if (isLoading) {
     return (
@@ -633,6 +652,29 @@ export default function VideoJobPage() {
             <div className="flex justify-between items-center">
               <h1 className="text-3xl font-bold">Video Lesson</h1>
               <div className="flex gap-2">
+                {/* --- Add Share Button --- */}
+                <button
+                  onClick={handleShare}
+                  title="Copy link to clipboard"
+                  className={`px-3 py-2 rounded flex items-center gap-2 transition-colors duration-200 ${
+                    isCopied
+                      ? 'bg-green-600 text-white'
+                      : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
+                  }`}
+                >
+                  {isCopied ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Share2 className="w-4 h-4" />
+                      Share
+                    </>
+                  )}
+                </button>
+                {/* --- End Share Button --- */}
                 <button
                   onClick={() => setActiveVideo('original')}
                   className={`px-4 py-2 rounded flex items-center gap-2 ${

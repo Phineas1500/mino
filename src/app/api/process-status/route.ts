@@ -30,10 +30,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ status: 'error', message: `Backend status check failed: ${errorText}` }, { status: backendResponse.status });
     }
 
-    // If backend response is OK, parse the JSON and forward it
-    const result = await backendResponse.json();
-    console.log(`Received status for job ${jobId}:`, result.status);
-    return NextResponse.json(result, { status: 200 });
+    // --- Assume backend now returns { status, progress, stage, message?, data? } ---
+    const result = await backendResponse.json(); 
+    console.log(`Received status for job ${jobId}:`, result); 
+
+    // Forward the entire result object from the backend
+    return NextResponse.json(result, { status: 200 }); 
+    // --- End Assumption ---
 
   } catch (error) {
     console.error('Error in /api/process-status:', error);

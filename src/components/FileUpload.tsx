@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect, DragEvent } from "react" 
-import { Upload, Loader2, Link as LinkIcon } from "lucide-react" 
+import { useState, useRef, useEffect, DragEvent, ChangeEvent } from "react" // Import ChangeEvent
+import { Upload, Loader2, Link as LinkIcon, CheckCircle2, XCircle } from "lucide-react" 
 import { compressVideo, shouldCompress } from '../components/videoCompressor'; 
 import { useRouter } from 'next/navigation';
 
@@ -24,6 +24,35 @@ interface ProcessResponse {
   }
 }
 
+// --- Define more detailed status stages ---
+type ProcessingStage = 
+  | 'idle' 
+  | 'compressing' 
+  | 'getting_upload_url' 
+  | 'uploading_to_s3' 
+  | 'initiating_processing' 
+  | 'pending' // Waiting in backend queue
+  | 'downloading' // YouTube specific
+  | 'uploading_original' // YouTube specific
+  | 'preparing' 
+  | 'transcribing' 
+  | 'analyzing' 
+  | 'generating_summary' // Example stages
+  | 'generating_keypoints'
+  | 'generating_flashcards'
+  | 'finalizing' 
+  | 'complete' 
+  | 'error';
+
+// --- Update Progress State Structure ---
+interface ProgressState {
+  status: 'idle' | 'uploading' | 'processing' | 'done' | 'error'; // Overall status
+  stage: ProcessingStage; // Specific step
+  message: string; // User-friendly message
+  percentage: number; // Overall percentage (0-100)
+}
+// --- End Update ---
+
 // --- ADD mobile detection utility here ---
 const isMobileDevice = () => {
   if (typeof window === 'undefined') return false; 
@@ -36,58 +65,66 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   const [file, setFile] = useState<File | null>(null)
   const [youtubeUrl, setYoutubeUrl] = useState(''); 
   const [uploading, setUploading] = useState(false)
-  const [processedUrl, setProcessedUrl] = useState<string | null>(null)
-  const [progress, setProgress] = useState<{
-    status: 'idle' | 'uploading' | 'processing' | 'done' | 'error'
-    message: string
-  }>({ status: 'idle', message: '' })
+  // const [processedUrl, setProcessedUrl] = useState<string | null>(null) // Remove if not showing preview here
+  
+  // --- Use updated ProgressState ---
+  const [progress, setProgress] = useState<ProgressState>({ 
+    status: 'idle', 
+    stage: 'idle', 
+    message: '', 
+    percentage: 0 
+  });
+  // --- End Use ---
+
   const [uploadGlow, setUploadGlow] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null); 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null); 
   const uploadAbortController = useRef<AbortController | null>(null)
   const processAbortController = useRef<AbortController | null>(null)
-  // --- State for drag-over visual feedback ---
   const [isDraggingOver, setIsDraggingOver] = useState(false); 
-  const [compressionProgress, setCompressionProgress] = useState<number | null>(null); // State for compression %
+  // const [compressionProgress, setCompressionProgress] = useState<number | null>(null); // Remove, use progress.percentage
 
   const handleCancel = () => {
-    stopPolling(); // Stop polling on cancel
-    // Abort any ongoing requests
+    stopPolling(); 
     uploadAbortController.current?.abort()
     processAbortController.current?.abort()
     
     // Reset state
-    setProgress({ status: 'idle', message: '' })
+    setProgress({ status: 'idle', stage: 'idle', message: '', percentage: 0 }); // Reset progress state
     setUploading(false)
     setFile(null)
+    setJobId(null); // Reset jobId
     setUploadGlow(false)
-    setIsDraggingOver(false); // Reset drag state on cancel
+    setIsDraggingOver(false); 
   }
 
-  // --- Refactor upload logic into a reusable function ---
+  // --- Update startUploadProcess to use new progress state ---
   const startUploadProcess = async (selectedFile: File) => {
-    if (!selectedFile || uploading) return; // Prevent processing if no file or already uploading
+    if (!selectedFile || uploading) return; 
 
-    setFile(selectedFile); // Keep track of the selected file
+    setFile(selectedFile); 
     setUploading(true);
     setUploadGlow(true);
-    // --- Reset compression progress ---
-    setCompressionProgress(null); 
-    setProgress({ status: 'uploading', message: 'Preparing upload...' }); 
+    setProgress({ status: 'uploading', stage: 'idle', message: 'Preparing upload...', percentage: 0 }); 
 
-    let fileToUpload: File = selectedFile; // Start with the original file
+    let fileToUpload: File = selectedFile; 
+    let compressionComplete = false;
 
     // --- Compression Step ---
     try {
-      // --- USE isMobileDevice check here ---
       const needsCompressionCheck = await shouldCompress(selectedFile);
       if (!isMobileDevice() && needsCompressionCheck) { 
-      // --- End USE ---
-        setProgress({ status: 'uploading', message: 'Compressing video (0%)...' }); 
+        setProgress(prev => ({ ...prev, stage: 'compressing', message: 'Compressing video (0%)...', percentage: 0 })); 
         
-        const compressedBlob = await compressVideo(selectedFile, (progress) => {
-            setCompressionProgress(progress);
-            setProgress(prev => ({ ...prev, message: `Compressing video (${progress}%)...` }));
+        const compressedBlob = await compressVideo(selectedFile, (compProgress) => {
+            // Map compression progress (0-100) to a portion of the overall bar (e.g., 0-30%)
+            const overallPercentage = Math.min(30, Math.round(compProgress * 0.30)); 
+            setProgress(prev => ({ 
+                ...prev, 
+                stage: 'compressing', 
+                message: `Compressing video (${compProgress}%)...`, 
+                percentage: overallPercentage 
+            }));
         });
         
         fileToUpload = new File(
@@ -97,42 +134,50 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           { type: 'video/mp4', lastModified: Date.now() } // Use mp4 type
         );
         console.log('Compression complete. New file:', fileToUpload.name, 'Size:', (fileToUpload.size / 1024 / 1024).toFixed(2), 'MB');
-        setProgress({ status: 'uploading', message: 'Compression complete. Getting upload URL...' });
-        setCompressionProgress(100); // Ensure it hits 100%
+        setProgress(prev => ({ 
+            ...prev, 
+            stage: 'getting_upload_url', // Move to next stage
+            message: 'Compression complete. Getting upload URL...', 
+            percentage: 30 // Set percentage for end of compression
+        }));
+        compressionComplete = true;
       } else {
-         // Log why compression was skipped
+         // Log skip reason
          if (isMobileDevice()) {
              console.log("Skipping compression: Mobile device detected.");
          } else if (!needsCompressionCheck) {
              console.log("Skipping compression: File does not meet criteria (size/type).");
          }
-         setProgress({ status: 'uploading', message: 'Getting upload URL...' });
+         setProgress(prev => ({ 
+             ...prev, 
+             stage: 'getting_upload_url', // Move to next stage
+             message: 'Getting upload URL...', 
+             percentage: 0 // Start percentage if no compression
+         }));
       }
     } catch (compressionError) {
        console.error('Compression failed:', compressionError);
-       // --- Use the error message from the re-thrown error ---
        setProgress({ 
            status: 'error', 
-           message: compressionError instanceof Error ? compressionError.message : 'Video compression failed.' 
+           stage: 'compressing', // Stage where error occurred
+           message: compressionError instanceof Error ? compressionError.message : 'Video compression failed.',
+           percentage: progress.percentage // Keep percentage where it failed
        });
        setUploading(false);
        setUploadGlow(false);
-       return; // Stop the process
-    } finally {
-        // Optional: Clear compression progress after a short delay if successful
-        // if (compressionProgress === 100) {
-        //    setTimeout(() => setCompressionProgress(null), 1000);
-        // }
-    }
+       return; 
+    } 
 
-    // --- Upload Steps (using fileToUpload) ---
+    // --- Upload Steps ---
     let isConflict = false; 
+    const uploadStartPercentage = compressionComplete ? 30 : 0; // Where the upload phase starts
 
     try {
       uploadAbortController.current = new AbortController();
+      setProgress(prev => ({ ...prev, stage: 'getting_upload_url', message: 'Getting upload URL...', percentage: uploadStartPercentage + 5 })); // Small bump
 
       // Step 1: Get presigned URL 
-      // ... (existing presigned URL logic using compressedFile) ...
+      // ... (fetch /api/s3/presigned) ...
       let urlResponse: Response | undefined
       let retries = 3
       while (retries > 0) {
@@ -158,10 +203,10 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       }
       const { url, fields } = await urlResponse.json();
       
-      setProgress({ status: 'uploading', message: 'Uploading to S3...' });
+      setProgress(prev => ({ ...prev, stage: 'uploading_to_s3', message: 'Uploading to S3...', percentage: uploadStartPercentage + 15 })); // Bump percentage
 
       // Step 2: Upload to S3
-      // ... (existing S3 upload logic using compressedFile) ...
+      // ... (fetch PUT to S3 url) ...
       let uploadResponse: Response | undefined
       retries = 3
       while (retries > 0) {
@@ -186,9 +231,9 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         throw new Error(`Failed to upload to S3: ${errorText}`);
       }
 
+      setProgress(prev => ({ ...prev, stage: 'initiating_processing', message: 'Initiating processing...', percentage: uploadStartPercentage + 30 })); // Bump percentage
+
       // Step 3: Initiate video processing
-      // ... (existing processing initiation logic using fields.key) ...
-      setProgress({ status: 'processing', message: 'Initiating processing...' });
       processAbortController.current = new AbortController(); 
       let initialProcessResponse: Response;
       try {
@@ -198,21 +243,32 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           body: JSON.stringify({ fileKey: fields.key }),
           signal: processAbortController.current.signal
         });
+        
         if (initialProcessResponse.status === 409) {
+          // ... handle conflict ...
           console.warn('Processing conflict detected (409)');
-          setProgress({ status: 'error', message: 'This video is already being processed. Please wait.' });
+          setProgress({ status: 'error', stage: 'initiating_processing', message: 'This video is already being processed. Please wait.', percentage: progress.percentage });
           isConflict = true; 
         } else if (initialProcessResponse.status === 202) {
           const { jobId: receivedJobId } = await initialProcessResponse.json();
+          // ... handle success ...
           if (!receivedJobId) throw new Error('Processing initiated but no Job ID received.');
           setJobId(receivedJobId); 
-          setProgress({ status: 'processing', message: 'Processing video... (0%)' }); 
+          // Update status to 'processing' and stage to 'pending' (or first backend stage)
+          setProgress({ 
+              status: 'processing', 
+              stage: 'pending', // Assume backend starts in pending
+              message: 'Processing queued...', 
+              percentage: uploadStartPercentage + 35 // Initial backend percentage
+          }); 
           startPolling(receivedJobId); 
         } else {
+          // ... handle other errors ...
           const errorText = await initialProcessResponse.text();
           throw new Error(`Failed to initiate processing (Status: ${initialProcessResponse.status}): ${errorText}`);
         }
       } catch (error) {
+         // ... handle fetch error ...
          if (error instanceof Error && error.name === 'AbortError') throw new Error('Initiating processing cancelled or timed out.');
          console.error('Error initiating processing:', error);
          throw error; 
@@ -221,49 +277,49 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     } catch (error) {
       console.error('Upload/processing failed:', error);
       stopPolling(); 
-      setProgress({ status: 'error', message: error instanceof Error ? error.message : 'Upload failed' });
+      // Use the stage from the last successful progress update
+      setProgress(prev => ({ 
+          status: 'error', 
+          stage: prev.stage, // Keep last known stage
+          message: error instanceof Error ? error.message : 'Upload failed',
+          percentage: prev.percentage // Keep percentage
+      }));
     } finally {
-      if (!isConflict && !jobId) { 
+      // ... (finally logic, ensure setUploading(false) is handled correctly based on polling start) ...
+       if (!isConflict && !jobId) { 
          setUploading(false);
-      }
-      setTimeout(() => setUploadGlow(false), 1000);
-      uploadAbortController.current = null;
+       }
+       setTimeout(() => setUploadGlow(false), 1000);
+       uploadAbortController.current = null;
     }
   };
 
-  // --- Original handler for file input change ---
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      startUploadProcess(file); // Call the refactored function
-    }
-    // Reset the input value to allow selecting the same file again
-    e.target.value = ''; 
-  };
-
-  // --- Handler for YouTube URL submission ---
+  // --- Update handleUrlSubmit ---
   const handleUrlSubmit = async () => {
     if (!youtubeUrl || uploading) return; // Prevent submission if empty or already processing
 
     // Basic URL validation (optional, enhance as needed)
     if (!youtubeUrl.startsWith('http://') && !youtubeUrl.startsWith('https://')) {
-       setProgress({ status: 'error', message: 'Please enter a valid URL.' });
+       setProgress({ status: 'error', stage: 'initiating_processing', message: 'Please enter a valid URL.', percentage: 5 });
        return;
     }
 
     setUploading(true);
-    setUploadGlow(true); // Optional glow effect
-    setProgress({ status: 'processing', message: 'Requesting video download from URL...' }); // Initial message
-    setFile(null); // Clear any selected file
-    setYoutubeUrl(''); // Clear the input field
+    setUploadGlow(true); 
+    // Initial progress for URL submission
+    setProgress({ 
+        status: 'processing', // Go straight to processing
+        stage: 'initiating_processing', // Stage for calling our API
+        message: 'Requesting video processing from URL...', 
+        percentage: 5 // Small initial percentage
+    }); 
+    setFile(null); 
+    setYoutubeUrl(''); 
 
-    let isConflict = false; // Reuse conflict flag logic if applicable
+    let isConflict = false; 
 
     try {
-      // Use processAbortController for this request as well
       processAbortController.current = new AbortController();
-
-      // Step 1: Call the new API route to handle the URL
       const urlProcessResponse = await fetch('/api/process-youtube', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -271,24 +327,25 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         signal: processAbortController.current.signal
       });
 
-      // Step 2: Handle the response (similar to file upload initiation)
       if (urlProcessResponse.status === 409) {
-        console.warn('Processing conflict detected (409) for URL');
-        setProgress({ 
-          status: 'error', 
-          message: 'This video (or another) is already being processed. Please wait.' 
-        });
-        isConflict = true;
+        // ... handle conflict ...
+         console.warn('Processing conflict detected (409) for URL');
+         setProgress({ status: 'error', stage: 'initiating_processing', message: 'This video (or another) is already being processed. Please wait.', percentage: 5 });
+         isConflict = true;
       } else if (urlProcessResponse.status === 202) {
         const { jobId: receivedJobId } = await urlProcessResponse.json();
-        if (!receivedJobId) {
-          throw new Error('Processing initiated for URL but no Job ID received.');
-        }
+        // ... handle success ...
         setJobId(receivedJobId);
-        // Update progress message - backend handles download/upload before processing starts
-        setProgress({ status: 'processing', message: 'Video processing started... (0%)' }); 
-        startPolling(receivedJobId); // Start polling
+        // Assume backend starts downloading or pending
+        setProgress({ 
+            status: 'processing', 
+            stage: 'pending', // Or 'downloading' if backend reports that first
+            message: 'Video processing started...', 
+            percentage: 10 // Slightly higher starting point for URL
+        }); 
+        startPolling(receivedJobId); 
       } else {
+        // ... handle error ...
         const errorText = await urlProcessResponse.text();
         throw new Error(`Failed to initiate processing for URL (Status: ${urlProcessResponse.status}): ${errorText}`);
       }
@@ -298,10 +355,12 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       stopPolling(); 
       setProgress({ 
         status: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to process YouTube URL' 
+        stage: 'initiating_processing', // Error occurred during initiation
+        message: error instanceof Error ? error.message : 'Failed to process YouTube URL',
+        percentage: 5 // Keep initial percentage
       });
     } finally {
-      // Reset uploading state only if not a conflict and polling hasn't started
+      // ... (finally logic) ...
       if (!isConflict && !jobId) { 
          setUploading(false);
       }
@@ -310,75 +369,81 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     }
   };
 
-  // --- Polling functions ---
+  // --- Update Polling functions ---
   const pollStatus = async (currentJobId: string) => {
     console.log(`Polling status for job: ${currentJobId}`);
     try {
       const statusResponse = await fetch(`/api/process-status?jobId=${currentJobId}`);
+      if (!statusResponse.ok) { /* ... handle error ... */ return; }
 
-      if (!statusResponse.ok) {
-        // Handle non-OK status check responses (e.g., 404 Not Found, 500)
-        console.error(`Status check failed with status: ${statusResponse.status}`);
-        // Optionally stop polling after too many errors
-        return; 
+      // --- Expect enhanced status from API ---
+      const result: { 
+          status: 'processing' | 'complete' | 'error' | 'not_found'; 
+          stage?: ProcessingStage; // Backend stage
+          progress?: number; // Backend overall progress (0-100)
+          message?: string; // Optional backend message
+          data?: any; // Data on completion
+      } = await statusResponse.json();
+      // --- End Expect ---
+
+      let currentStage = result.stage || progress.stage; // Use backend stage if available
+      let currentPercentage = result.progress ?? progress.percentage; // Use backend progress if available
+      let currentMessage = result.message || progress.message; // Use backend message if available
+
+      // Generate a frontend message based on stage if backend didn't provide one
+      if (!result.message && result.status === 'processing') {
+          currentMessage = getMessageForStage(currentStage, currentPercentage);
       }
-
-      const result = await statusResponse.json();
 
       switch (result.status) {
         case 'processing':
-          // Update progress message if needed (e.g., include percentage if available)
-          setProgress(prev => ({ ...prev, message: `Processing video... (${result.progress || 0}%)` }));
-          // Continue polling (handled by setInterval)
+          setProgress({ 
+              status: 'processing', 
+              stage: currentStage, 
+              message: currentMessage, 
+              percentage: currentPercentage 
+          });
           break;
         case 'complete':
           console.log('Processing complete:', result.data);
-          stopPolling(); // Stop polling on success
-          setProgress({ status: 'done', message: 'Video processed successfully!' });
-          
-          // *** Remove or comment out sessionStorage saving ***
-          // console.log('Saving lessonData to sessionStorage:', lessonData); 
-          // sessionStorage.setItem("lessonData", JSON.stringify(lessonData));
-          // if (result.data?.originalUrl) {
-          //    sessionStorage.setItem("videoUrl", result.data.originalUrl);
-          //    sessionStorage.setItem("shortenedUrl", result.data.originalUrl); 
-          // }
-
-          // Call the prop if provided (optional, might not be needed anymore)
-          // if (onProcessingComplete) {
-          //    onProcessingComplete(lessonData);
-          // }
-          
-          setProcessedUrl(result.data?.originalUrl || null); // Keep if you show preview on upload page
-          setUploading(false); // Allow new uploads now
-
-          // *** Navigate to the dynamic route using the jobId ***
-          router.push(`/video/${currentJobId}`); // Use the jobId from polling
-
-          break; // End of case 'complete'
+          stopPolling(); 
+          setProgress({ 
+              status: 'done', 
+              stage: 'complete', 
+              message: 'Video processed successfully!', 
+              percentage: 100 
+          });
+          setUploading(false); 
+          router.push(`/video/${currentJobId}`); 
+          break; 
         case 'error':
           console.error('Processing failed:', result.message);
-          stopPolling(); // Stop polling on error
-          setProgress({ status: 'error', message: `Processing failed: ${result.message}` });
-          setUploading(false); // Allow new uploads now
+          stopPolling(); 
+          setProgress({ 
+              status: 'error', 
+              stage: currentStage, // Stage where error occurred
+              message: `Processing failed: ${result.message || 'Unknown backend error'}`, 
+              percentage: currentPercentage // Keep percentage at point of failure
+          });
+          setUploading(false); 
           break;
         case 'not_found':
-          console.error(`Job ID ${currentJobId} not found.`);
-          stopPolling();
-          setProgress({ status: 'error', message: 'Processing job not found.' });
-          setUploading(false);
-          break;
+           // ... handle not found ...
+           console.error(`Job ID ${currentJobId} not found.`);
+           stopPolling();
+           setProgress({ status: 'error', stage: 'error', message: 'Processing job not found.', percentage: 0 });
+           setUploading(false);
+           break;
         default:
           console.warn(`Unknown status received: ${result.status}`);
-          // Optionally stop polling or handle as error
       }
     } catch (error) {
       console.error('Error during polling:', error);
-      // Optionally stop polling after too many network errors
+      // Consider adding logic to stop polling after multiple errors
     }
   };
 
-  const startPolling = (currentJobId: string) => {
+  const startPolling = (currentJobId: string) => { 
     stopPolling(); // Clear any existing interval first
     console.log(`Starting polling for job: ${currentJobId}`);
     // Poll immediately first time
@@ -386,54 +451,52 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     // Then poll every 5 seconds (adjust interval as needed)
     pollingIntervalRef.current = setInterval(() => pollStatus(currentJobId), 5000); 
   };
-
-  const getProgressPercentage = () => {
-    switch (progress.status) {
-      case 'idle':
-        return 0;
-      case 'uploading':
-        // If compressing, show compression progress, otherwise show fixed upload stages
-        if (compressionProgress !== null) {
-            // Map 0-100% compression to 0-33% of the overall bar
-            return Math.min(33, Math.round(compressionProgress * 0.33)); 
-        }
-        // Rough stages for non-compressing upload
-        if (progress.message.includes('Getting upload URL')) return 10;
-        if (progress.message.includes('Uploading to S3')) return 20;
-        return 33; // Default for uploading stage if no compression
-      case 'processing':
-         // Map 0-100% backend processing to 34-99% of the overall bar
-         const backendProgressMatch = progress.message.match(/\((\d+)%\)/);
-         const backendProgress = backendProgressMatch ? parseInt(backendProgressMatch[1], 10) : 0;
-         // Start at 34%, scale up to 99%
-         return 34 + Math.round(backendProgress * 0.65); 
-      case 'done':
-        return 100;
-      case 'error':
-        return 0; // Or maybe show progress up to the point of error?
-      default:
-        return 0;
-    }
-  }
-
-  // Function to stop polling
-  const stopPolling = () => {
+  const stopPolling = () => { 
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
       console.log('Polling stopped.');
     }
   };
-
-  // Add useEffect for cleanup when component unmounts
-  useEffect(() => {
+  useEffect(() => { 
     // Cleanup function to stop polling if the component unmounts
     return () => {
       stopPolling();
     };
-  }, []); // Empty dependency array ensures this runs only on mount and unmount
+  }, []); 
 
-  // --- Drag and Drop Handlers ---
+  // --- Helper to generate messages (customize as needed) ---
+  const getMessageForStage = (stage: ProcessingStage, percentage: number): string => {
+      switch (stage) {
+          case 'compressing': return `Compressing video (${Math.round(percentage / 0.30)}%)...`; // Back-calculate compression %
+          case 'getting_upload_url': return 'Getting upload URL...';
+          case 'uploading_to_s3': return 'Uploading video...';
+          case 'initiating_processing': return 'Initiating processing...';
+          case 'pending': return 'Processing queued...';
+          case 'downloading': return 'Downloading video...';
+          case 'uploading_original': return 'Preparing video...';
+          case 'preparing': return 'Preparing analysis...';
+          case 'transcribing': return `Transcribing audio (${percentage}%)...`; // Use overall % here
+          case 'analyzing': return `Analyzing transcript (${percentage}%)...`;
+          case 'generating_summary': return 'Generating summary...';
+          case 'generating_keypoints': return 'Generating key points...';
+          case 'generating_flashcards': return 'Generating flashcards...';
+          case 'finalizing': return 'Finalizing results...';
+          case 'complete': return 'Video processed successfully!';
+          case 'error': return 'An error occurred.';
+          default: return `Processing (${percentage}%)...`;
+      }
+  };
+  // --- End Helper ---
+
+  // --- getProgressPercentage now just reads state ---
+  const getProgressPercentage = () => {
+    // Ensure percentage is between 0 and 100
+    return Math.max(0, Math.min(100, Math.round(progress.percentage))); 
+  }
+  // --- End Update ---
+
+  // --- Drag/Drop handlers no change ---
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault(); // Necessary to allow dropping
     e.stopPropagation();
@@ -461,13 +524,25 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       // Optional: Check file type against 'accept' prop
       if (accept !== "*" && !accept.split(',').some(type => droppedFile.type.startsWith(type.trim().replace('*', '')))) {
           console.warn(`Dropped file type (${droppedFile.type}) does not match accepted types (${accept})`);
-          setProgress({ status: 'error', message: `Invalid file type. Please drop a video file (${accept}).` });
+          setProgress({ status: 'error', stage: 'idle', message: `Invalid file type. Please drop a video file (${accept}).`, percentage: 0 });
           return;
       }
       console.log('File dropped:', droppedFile.name);
       startUploadProcess(droppedFile); // Use the refactored upload function
     }
   };
+
+  // --- ADD Definition for handleFileInputChange ---
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      console.log('File selected via input:', selectedFile.name);
+      startUploadProcess(selectedFile); // Call the main upload logic
+    }
+    // Reset the input value to allow selecting the same file again if needed
+    e.target.value = ''; 
+  };
+  // --- End ADD ---
 
   return (
     <div className="flex flex-col items-center gap-8 w-full">
@@ -497,17 +572,23 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           htmlFor="video-upload"
           className="flex flex-col items-center cursor-pointer"
         >
+          {/* --- Update Icon based on status --- */}
           {progress.status === 'uploading' || progress.status === 'processing' ? (
             <Loader2 className="w-8 h-8 mb-4 text-muted-foreground animate-spin" />
+          ) : progress.status === 'done' ? (
+            <CheckCircle2 className="w-8 h-8 mb-4 text-green-500" />
+          ) : progress.status === 'error' ? (
+            <XCircle className="w-8 h-8 mb-4 text-red-500" />
           ) : (
             <Upload className="w-8 h-8 mb-4 text-muted-foreground" />
           )}
+          {/* --- End Update Icon --- */}
           <span className="text-base mb-1">
             {isDraggingOver 
-              ? "Drop the video file here" // Message when dragging over
+              ? "Drop the video file here" 
               : progress.status === 'idle' 
-                ? "Drop your lecture video here or click to browse" // Updated idle message
-                : progress.message
+                ? "Drop your lecture video here or click to browse" 
+                : progress.message // Display the detailed message from state
             }
           </span>
           <span className="text-sm text-muted-foreground">
@@ -524,13 +605,8 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         {progress.status !== 'idle' && (
           <>
             <div className="mt-4 flex items-center justify-between">
-              <div className={`text-sm ${
-                progress.status === 'error' ? 'text-red-500' : 
-                progress.status === 'done' ? 'text-green-500' : 
-                'text-blue-500'
-              }`}>
-                {progress.message}
-              </div>
+              {/* --- Message is now part of the main label text, remove duplicate --- */}
+              {/* <div className={`text-sm ${...}`}> {progress.message} </div> */}
               {(progress.status === 'uploading' || progress.status === 'processing') && (
                 <button
                   onClick={handleCancel}
@@ -540,6 +616,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
                 </button>
               )}
             </div>
+            {/* --- Progress Bar uses getProgressPercentage() which reads state --- */}
             {progress.status !== 'error' && (
               <div className="w-full mt-4">
                 <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
@@ -553,9 +630,12 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
                     }}
                   />
                 </div>
-                <div className="mt-2 text-xs text-muted-foreground text-center">
-                  {getProgressPercentage()}%
-                </div>
+                {/* --- Optional: Show percentage text only during active processing --- */}
+                {(progress.status === 'uploading' || progress.status === 'processing') && (
+                  <div className="mt-2 text-xs text-muted-foreground text-center">
+                    {getProgressPercentage()}%
+                  </div>
+                )}
               </div>
             )}
           </>
@@ -591,16 +671,8 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         </button>
       </div>
 
-      {processedUrl && progress.status === 'done' && (
-        <div className="w-full max-w-2xl">
-          <h2 className="text-lg font-semibold mb-4">Processed Video</h2>
-          <video 
-            src={processedUrl} 
-            controls 
-            className="w-full rounded-lg shadow-lg"
-          />
-        </div>
-      )}
+      {/* ... Remove Processed Video Preview if not needed on upload page ... */}
+      {/* {processedUrl && progress.status === 'done' && ( ... )} */}
     </div>
   )
 }

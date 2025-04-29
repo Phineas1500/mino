@@ -1,9 +1,8 @@
 'use client'
 
-import { useState, useRef, useEffect, DragEvent } from "react" // Import DragEvent
-// Add Link icon or similar for the URL input
+import { useState, useRef, useEffect, DragEvent } from "react" 
 import { Upload, Loader2, Link as LinkIcon } from "lucide-react" 
-import { compressVideo, shouldCompress } from '../components/videoCompressor';
+import { compressVideo, shouldCompress } from '../components/videoCompressor'; 
 import { useRouter } from 'next/navigation';
 
 interface FileUploadProps {
@@ -25,6 +24,13 @@ interface ProcessResponse {
   }
 }
 
+// --- ADD mobile detection utility here ---
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false; 
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+// --- End ADD ---
+
 export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video/*" }: FileUploadProps) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null)
@@ -42,6 +48,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   const processAbortController = useRef<AbortController | null>(null)
   // --- State for drag-over visual feedback ---
   const [isDraggingOver, setIsDraggingOver] = useState(false); 
+  const [compressionProgress, setCompressionProgress] = useState<number | null>(null); // State for compression %
 
   const handleCancel = () => {
     stopPolling(); // Stop polling on cancel
@@ -64,27 +71,61 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     setFile(selectedFile); // Keep track of the selected file
     setUploading(true);
     setUploadGlow(true);
-    setProgress({ status: 'uploading', message: 'Compressing video (if needed)...' }); // Initial message
+    // --- Reset compression progress ---
+    setCompressionProgress(null); 
+    setProgress({ status: 'uploading', message: 'Preparing upload...' }); 
 
-    let compressedFile: File;
+    let fileToUpload: File = selectedFile; // Start with the original file
+
+    // --- Compression Step ---
     try {
-      const compressedBlob = await shouldCompress(selectedFile) 
-        ? await compressVideo(selectedFile)
-        : selectedFile;
-      compressedFile = new File(
-        [compressedBlob], 
-        selectedFile.name, 
-        { type: selectedFile.type, lastModified: selectedFile.lastModified }
-      );
-      setProgress({ status: 'uploading', message: 'Getting upload URL...' });
+      // --- USE isMobileDevice check here ---
+      const needsCompressionCheck = await shouldCompress(selectedFile);
+      if (!isMobileDevice() && needsCompressionCheck) { 
+      // --- End USE ---
+        setProgress({ status: 'uploading', message: 'Compressing video (0%)...' }); 
+        
+        const compressedBlob = await compressVideo(selectedFile, (progress) => {
+            setCompressionProgress(progress);
+            setProgress(prev => ({ ...prev, message: `Compressing video (${progress}%)...` }));
+        });
+        
+        fileToUpload = new File(
+          [compressedBlob], 
+          // Create a new name to avoid potential conflicts if backend uses original name
+          `compressed-${Date.now()}-${selectedFile.name.split('.').slice(0, -1).join('.')}.mp4`, 
+          { type: 'video/mp4', lastModified: Date.now() } // Use mp4 type
+        );
+        console.log('Compression complete. New file:', fileToUpload.name, 'Size:', (fileToUpload.size / 1024 / 1024).toFixed(2), 'MB');
+        setProgress({ status: 'uploading', message: 'Compression complete. Getting upload URL...' });
+        setCompressionProgress(100); // Ensure it hits 100%
+      } else {
+         // Log why compression was skipped
+         if (isMobileDevice()) {
+             console.log("Skipping compression: Mobile device detected.");
+         } else if (!needsCompressionCheck) {
+             console.log("Skipping compression: File does not meet criteria (size/type).");
+         }
+         setProgress({ status: 'uploading', message: 'Getting upload URL...' });
+      }
     } catch (compressionError) {
        console.error('Compression failed:', compressionError);
-       setProgress({ status: 'error', message: 'Video compression failed.' });
+       // --- Use the error message from the re-thrown error ---
+       setProgress({ 
+           status: 'error', 
+           message: compressionError instanceof Error ? compressionError.message : 'Video compression failed.' 
+       });
        setUploading(false);
        setUploadGlow(false);
-       return;
+       return; // Stop the process
+    } finally {
+        // Optional: Clear compression progress after a short delay if successful
+        // if (compressionProgress === 100) {
+        //    setTimeout(() => setCompressionProgress(null), 1000);
+        // }
     }
 
+    // --- Upload Steps (using fileToUpload) ---
     let isConflict = false; 
 
     try {
@@ -99,7 +140,7 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
           urlResponse = await fetch('/api/s3/presigned', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileName: compressedFile.name, fileType: compressedFile.type }),
+            body: JSON.stringify({ fileName: fileToUpload.name, fileType: fileToUpload.type }),
             signal: uploadAbortController.current.signal
           })
           if (urlResponse.ok) break
@@ -127,8 +168,8 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         try {
           uploadResponse = await fetch(url, {
             method: 'PUT',
-            body: compressedFile,
-            headers: { 'Content-Type': compressedFile.type },
+            body: fileToUpload,
+            headers: { 'Content-Type': fileToUpload.type },
             signal: uploadAbortController.current.signal
           })
           if (uploadResponse.ok) break
@@ -351,13 +392,25 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
       case 'idle':
         return 0;
       case 'uploading':
-        return 33;
+        // If compressing, show compression progress, otherwise show fixed upload stages
+        if (compressionProgress !== null) {
+            // Map 0-100% compression to 0-33% of the overall bar
+            return Math.min(33, Math.round(compressionProgress * 0.33)); 
+        }
+        // Rough stages for non-compressing upload
+        if (progress.message.includes('Getting upload URL')) return 10;
+        if (progress.message.includes('Uploading to S3')) return 20;
+        return 33; // Default for uploading stage if no compression
       case 'processing':
-        return 66;
+         // Map 0-100% backend processing to 34-99% of the overall bar
+         const backendProgressMatch = progress.message.match(/\((\d+)%\)/);
+         const backendProgress = backendProgressMatch ? parseInt(backendProgressMatch[1], 10) : 0;
+         // Start at 34%, scale up to 99%
+         return 34 + Math.round(backendProgress * 0.65); 
       case 'done':
         return 100;
       case 'error':
-        return 0;
+        return 0; // Or maybe show progress up to the point of error?
       default:
         return 0;
     }

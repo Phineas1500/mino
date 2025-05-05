@@ -190,8 +190,10 @@ const VideoPlayer = ({
         if (video.playbackRate !== targetSpeed) {
             video.playbackRate = targetSpeed;
         }
-
-        setSpeedAdjustedTime(calculateSpeedAdjustedTime(currentActualTime));
+        const calculatedAdjustedTime = calculateSpeedAdjustedTime(currentActualTime);
+        
+        const clampedAdjustedTime = Math.min(calculatedAdjustedTime, speedAdjustedDuration);
+        setSpeedAdjustedTime(clampedAdjustedTime);
     } else {
         if (video.playbackRate !== 1) {
             video.playbackRate = 1;
@@ -250,7 +252,7 @@ const VideoPlayer = ({
       />
       {type === 'turbo' && (
         <div className="absolute bottom-14 right-4 bg-black/80 px-3 py-1 rounded text-sm font-mono">
-          <span className="text-gray-400">Actual: </span>
+          <span className="text-gray-400">Sped up: </span>
           <span className="text-white">{formatTime(speedAdjustedTime)}</span>
           <span className="text-gray-400"> / </span>
           <span className="text-white">{formatTime(speedAdjustedDuration)}</span>
@@ -275,7 +277,7 @@ export default function VideoJobPage() {
   const turboVideoRef = useRef<HTMLVideoElement>(null);
   const [currentFlashcard, setCurrentFlashcard] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
-  const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('original');
+  const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('turbo');
   const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
   const [actualVideoDuration, setActualVideoDuration] = useState<number | null>(null);
   const [precalculatedTimes, setPrecalculatedTimes] = useState<TimeMapPoint[]>([]); 

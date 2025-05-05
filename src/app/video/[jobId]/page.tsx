@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Roboto_Mono } from "next/font/google";
 import { 
   Play, Zap, ChevronLeft, ChevronRight, Copy, Check, Share2, 
-  LocateFixed, LocateOff, Minimize2, Maximize2 
+  LocateFixed, LocateOff, Eye, EyeOff // <-- Add Eye, EyeOff
 } from 'lucide-react'; 
 
 interface Segment {
@@ -278,7 +278,6 @@ export default function VideoJobPage() {
   const [currentFlashcard, setCurrentFlashcard] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [activeVideo, setActiveVideo] = useState<'original' | 'turbo'>('turbo');
-  const [isTranscriptExpanded, setIsTranscriptExpanded] = useState(false);
   const [actualVideoDuration, setActualVideoDuration] = useState<number | null>(null);
   const [precalculatedTimes, setPrecalculatedTimes] = useState<TimeMapPoint[]>([]); 
 
@@ -636,73 +635,67 @@ export default function VideoJobPage() {
   }
 
   return (
-    <main className="min-h-screen p-4 md:p-8">
-      <div className="w-full max-w-6xl mx-auto">
+    <main className="min-h-screen flex flex-col p-2 md:p-4"> 
+      {/* Header */}
       <Link href="/">
-        <div className="w-full flex items-center justify-center gap-2 md:gap-4 mb-8 cursor-pointer">
-          <div className={`text-2xl md:text-4xl font-medium tracking-tight ${robotoMono.className}`}>min</div>
-          <div className="flex items-center gap-0 text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">
+        <div className="w-full flex items-center justify-center gap-2 md:gap-4 mb-4 cursor-pointer">
+          <div className={`text-xl md:text-2xl font-medium tracking-tight ${robotoMono.className}`}>min</div>
+          <div className="flex items-center gap-0 text-2xl md:text-4xl font-light tracking-tighter text-muted-foreground">
             <span>(</span>
-            <ChevronLeft className="w-12 h-12 opacity-50 relative top-[5px]" />
+            <ChevronLeft className="w-8 h-8 md:w-10 md:h-10 opacity-50 relative top-[3px]" />
             <span>)</span>
           </div>
         </div>
       </Link>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h1 className="text-3xl font-bold">Video Lesson</h1>
-              <div className="flex gap-2">
-                {/* --- Add Share Button --- */}
+      {/* --- Main Content Area: Flex row on large screens, column on smaller --- */}
+      <div className="flex flex-col lg:flex-row flex-grow gap-4 w-full max-w-full mx-auto"> 
+
+        {/* --- Left Column (Video + Info Below) --- */}
+        {/* Use flex-basis for percentage-like width, min-w-0 prevents overflow issues */}
+        <div className="flex flex-col lg:flex-[7] min-w-0 space-y-4"> 
+          {/* Video Player Area */}
+          <div className="sticky top-2 md:top-4 z-10"> {/* Make video player sticky */}
+            <div className="flex justify-between items-center mb-2 px-1"> {/* Less margin */}
+              {/* Title can be removed or kept minimal */}
+              {/* <h1 className="text-xl font-bold">Video Lesson</h1> */}
+              <div className="flex gap-2 ml-auto"> {/* Buttons pushed to the right */}
                 <button
                   onClick={handleShare}
                   title="Copy link to clipboard"
-                  className={`px-3 py-2 rounded flex items-center gap-2 transition-colors duration-200 ${
+                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 text-xs sm:text-sm transition-colors duration-200 ${
                     isCopied
                       ? 'bg-green-600 text-white'
                       : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
                   }`}
                 >
-                  {isCopied ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Share2 className="w-4 h-4" />
-                      Share
-                    </>
-                  )}
+                  {isCopied ? <Check className="w-3.5 h-3.5" /> : <Share2 className="w-3.5 h-3.5" />}
+                  {isCopied ? 'Copied!' : 'Share'}
                 </button>
-                {/* --- End Share Button --- */}
                 <button
                   onClick={() => setActiveVideo('original')}
-                  className={`px-4 py-2 rounded flex items-center gap-2 ${
-                    activeVideo === 'original' 
-                      ? 'bg-blue-600 text-white' 
-                      : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
+                  title="Play Original Video"
+                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 text-xs sm:text-sm transition-colors duration-200 ${
+                    activeVideo === 'original' ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
                   }`}
                 >
-                  <Play className="w-4 h-4" />
+                  <Play className="w-3.5 h-3.5" />
                   Original
                 </button>
                 <button
                   onClick={() => setActiveVideo('turbo')}
-                  className={`px-4 py-2 rounded flex items-center gap-2 ${
-                    activeVideo === 'turbo'
-                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white' 
-                      : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
+                  title="Play Turbo Video"
+                  className={`px-3 py-1.5 rounded flex items-center gap-1.5 text-xs sm:text-sm transition-colors duration-200 ${
+                    activeVideo === 'turbo' ? 'bg-purple-600 text-white' : 'bg-zinc-700 text-gray-300 hover:bg-zinc-600'
                   }`}
                 >
-                  <Zap className={`w-4 h-4 ${activeVideo === 'turbo' ? 'animate-pulse' : ''}`} />
+                  <Zap className={`w-3.5 h-3.5 ${activeVideo === 'turbo' ? 'animate-pulse' : ''}`} />
                   Turbo
                 </button>
               </div>
             </div>
             
-            <div className="rounded-lg overflow-hidden bg-black">
+            <div className="rounded-lg overflow-hidden bg-black border border-zinc-700 shadow-lg"> {/* Add border/shadow */}
               <VideoPlayer 
                 type={activeVideo}
                 video={activeVideo === 'original' ? originalVideo : turboVideo}
@@ -711,197 +704,152 @@ export default function VideoJobPage() {
                 precalculatedTimes={precalculatedTimes} 
                 videoRef={activeVideo === 'original' ? originalVideoRef : turboVideoRef}
                 onDurationLoaded={handleVideoDurationLoaded}
-                onTimeUpdateActual={handleVideoTimeUpdate} // <-- Pass callback
+                onTimeUpdateActual={handleVideoTimeUpdate} 
               />
             </div>
+          </div>
 
-            <div className="bg-zinc-800 shadow rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 text-white">Summary</h2>
-              {isLoading ? (
-                <LoadingPulse />
-              ) : (
-                <div className="text-gray-300">
-                  {lessonData?.summary || "No summary available"}
-                </div>
-              )}
+          {/* Info Below Video (Summary, Key Points, Analysis) */}
+          <div className="space-y-4 pt-4"> {/* Add padding top */}
+            <div className="bg-zinc-800 shadow rounded-lg p-4 md:p-6">
+              <h2 className="text-lg font-semibold mb-3 text-white">Summary</h2>
+              {isLoading ? <LoadingPulse /> : <p className="text-sm text-gray-300">{lessonData.summary}</p>}
             </div>
 
-            <div className="bg-zinc-800 shadow rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 text-white">Key Points</h2>
-              {isLoading ? (
-                <LoadingPulse />
-              ) : (lessonData?.keyPoints && lessonData.keyPoints.length > 0) ? (
-                <ul className="list-disc list-inside text-gray-300 space-y-2">
+            <div className="bg-zinc-800 shadow rounded-lg p-4 md:p-6">
+              <h2 className="text-lg font-semibold mb-3 text-white">Key Points</h2>
+              {isLoading ? <LoadingPulse /> : (lessonData?.keyPoints && lessonData.keyPoints.length > 0) ? (
+                <ul className="list-disc list-inside text-sm text-gray-300 space-y-1.5">
                   {lessonData.keyPoints.map((point, index) => (
                     <li key={index}>{point}</li>
                   ))}
                 </ul>
-              ) : (
-                <div className="text-gray-400">No key points available</div>
-              )}
+              ) : <p className="text-sm text-gray-400">No key points generated.</p>}
             </div>
 
-            <div className="bg-zinc-800 shadow rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4 text-white">Analysis</h2>
-              {isLoading ? (
-                <LoadingPulse />
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Original Duration:</span>
-                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration)}</span>
+            <div className="bg-zinc-800 shadow rounded-lg p-4 md:p-6">
+              <h2 className="text-lg font-semibold mb-3 text-white">Analysis</h2>
+              {isLoading ? <LoadingPulse /> : (
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-gray-400">Total Duration</div>
+                    <div className="text-white font-medium">{formatTimestamp(lessonData.stats.total_duration)}</div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Adjusted Duration:</span>
-                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration - (lessonData.stats.total_duration * lessonData.stats.time_saved_percentage / 100))}</span>
+                  <div>
+                    <div className="text-gray-400">Skippable Segments</div>
+                    <div className="text-white font-medium">{lessonData.stats.skippable_segments} / {lessonData.stats.total_segments}</div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Time Saved:</span>
-                    <span className="text-gray-300">{formatTimestamp(lessonData.stats.total_duration * lessonData.stats.time_saved_percentage / 100)} ({Math.round(lessonData.stats.time_saved_percentage)}%)</span>
+                  <div>
+                    <div className="text-gray-400">Time Saved</div>
+                    <div className="text-white font-medium">{lessonData.stats.time_saved_percentage.toFixed(1)}%</div>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-300">Skippable Segments:</span>
-                    <span className="text-gray-300">{lessonData.stats.skippable_segments} of {lessonData.stats.total_segments}</span>
+                   <div>
+                    <div className="text-gray-400">Skippable Content</div>
+                    <div className="text-white font-medium">{lessonData.stats.skippable_percentage.toFixed(1)}%</div>
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div
-              className={`bg-zinc-800 shadow rounded-lg p-6 transition-all duration-300 ${
-                isTranscriptExpanded ? "hidden" : "block"
-              }`}
-            >
-              <h2 className="text-xl font-semibold mb-4 text-white">Flashcards</h2>
-              {isLoading ? (
-                <LoadingPulse />
-              ) : (lessonData?.flashcards && lessonData.flashcards.length > 0) ? (
-                <div className="space-y-4">
-                  <div className="bg-zinc-700 p-6 rounded-lg min-h-[200px] flex flex-col justify-between">
-                    <div className="text-gray-300">
-                      <div className="font-semibold mb-2">Question:</div>
-                      <div>{lessonData.flashcards[currentFlashcard]?.question}</div>
-                      {showAnswer && (
-                        <>
-                          <div className="font-semibold mt-4 mb-2">Answer:</div>
-                          <div>{lessonData.flashcards[currentFlashcard]?.answer}</div>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex justify-between items-center mt-4">
-                      <button
-                        onClick={prevFlashcard}
-                        className="p-2 text-gray-400 hover:text-white"
-                      >
-                        <ChevronLeft className="w-6 h-6" />
-                      </button>
-                      <button
-                        onClick={() => setShowAnswer(!showAnswer)}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                      >
-                        {showAnswer ? "Hide Answer" : "Show Answer"}
-                      </button>
-                      <button
-                        onClick={nextFlashcard}
-                        className="p-2 text-gray-400 hover:text-white"
-                      >
-                        <ChevronRight className="w-6 h-6" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-center text-gray-400">
-                    Card {currentFlashcard + 1} of {lessonData.flashcards.length}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-gray-400">No flashcards available</div>
-              )}
-            </div>
-
-            <div className="bg-zinc-800 shadow rounded-lg">
-              <div className="p-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-semibold text-white">Transcript</h2>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={toggleAutoScroll} // Use the correct toggle function
-                      title={isAutoScrollEnabled ? "Disable Auto-Scroll" : "Enable Auto-Scroll"}
-                      className="p-2 text-gray-400 hover:text-white rounded-lg"
-                    >
-                      {isAutoScrollEnabled ? <LocateFixed className="w-5 h-5 text-blue-400" /> : <LocateOff className="w-5 h-5" />}
-                    </button>
-                    <button
-                      onClick={() => setIsTranscriptExpanded(!isTranscriptExpanded)}
-                      className="p-2 text-gray-400 hover:text-white rounded-lg"
-                      title={isTranscriptExpanded ? "Collapse Transcript" : "Expand Transcript"}
-                    >
-                      {isTranscriptExpanded ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-                    </button>
-                  </div>
-                </div>
-                {isLoading ? (
-                  <LoadingPulse />
-                ) : (
-                  <div
-                    ref={transcriptContainerRef}
-                    onScroll={handleTranscriptScroll} // Keep handler attached
-                    className={`space-y-4 overflow-y-auto transition-all duration-300 scroll-smooth ${
-                      isTranscriptExpanded ? "h-[calc(100vh-16rem)]" : "h-[400px]"
-                    }`}
-                  >
-                    {lessonData.segments.map((segment, index) => (
-                      <div 
-                        ref={el => { segmentRefs.current[index] = el; }} 
-                        key={index} 
-                        className={`group p-4 rounded-lg transition-colors duration-200 ${
-                          index === activeSegmentIndex ? 'bg-zinc-600' : 
-                          segment.can_skip ? 'bg-zinc-700/50 hover:bg-zinc-600/60' : 'bg-zinc-700 hover:bg-zinc-600'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 mb-2">
-                          <button
-                            onClick={() => handleTimestampClick(segment.start)}
-                            className="text-blue-400 hover:text-blue-300 font-mono text-sm group-hover:opacity-100 opacity-70"
-                          >
-                            [{formatTimestamp(segment.start)}]
-                          </button>
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 text-xs rounded ${
-                              segment.importance_score >= 7 ? 'bg-green-600/30 text-green-200' :
-                              segment.importance_score >= 4 ? 'bg-yellow-600/30 text-yellow-200' :
-                              'bg-red-600/30 text-red-200'
-                            }`}>
-                              Score: {segment.importance_score}/10
-                            </span>
-                            <span className={`px-2 py-0.5 text-xs rounded ${
-                              segment.playback_speed <= 1.2 ? 'bg-green-600/30 text-green-200' :
-                              segment.playback_speed <= 1.8 ? 'bg-yellow-600/30 text-yellow-200' :
-                              'bg-red-600/30 text-red-200'
-                            }`}>
-                              {segment.playback_speed}x
-                            </span>
-                            {segment.can_skip && (
-                              <span className="px-2 py-0.5 bg-yellow-600/30 text-yellow-200 text-xs rounded">
-                                Skippable
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <p className="text-gray-300">{segment.text}</p>
-                        <p className="mt-2 text-sm text-gray-400 italic">
-                          {segment.reason}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </div>
-      </div>
+
+        {/* --- Right Column (Transcript + Flashcards) --- */}
+        {/* Use flex-basis, min-w-0, and flex column */}
+        <div className="flex flex-col lg:flex-[3] min-w-0 space-y-4 lg:max-h-[calc(100vh-80px)]"> {/* Limit height on large screens */}
+          
+          {/* Transcript Card - Always Expanded */}
+          <div className="bg-zinc-800 shadow rounded-lg flex flex-col flex-grow overflow-hidden"> {/* flex-grow allows it to take space */}
+            <div className="p-4 border-b border-zinc-700 flex justify-between items-center flex-shrink-0"> {/* Header */}
+              <h2 className="text-lg font-semibold text-white">Transcript</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleAutoScroll} 
+                  title={isAutoScrollEnabled ? "Disable Auto-Scroll" : "Enable Auto-Scroll"}
+                  className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"
+                >
+                  {isAutoScrollEnabled ? <LocateFixed className="w-4 h-4 text-blue-400" /> : <LocateOff className="w-4 h-4" />}
+                </button>
+                {/* Removed Expand/Collapse Button */}
+              </div>
+            </div>
+            {/* Transcript Content - Scrollable */}
+            <div 
+              ref={transcriptContainerRef} 
+              onScroll={handleTranscriptScroll}
+              className="p-4 space-y-3 overflow-y-auto flex-grow" // flex-grow + overflow-y-auto
+            >
+              {isLoading ? (
+                <LoadingPulse />
+              ) : lessonData.segments && lessonData.segments.length > 0 ? (
+                lessonData.segments.map((segment, index) => (
+                  <div 
+                    key={index} 
+                    ref={el => { segmentRefs.current[index] = el; }} // Assign ref
+                    onClick={() => handleTimestampClick(segment.start ?? 0)}
+                    className={`p-2 rounded-md cursor-pointer transition-colors duration-200 ${
+                      activeSegmentIndex === index ? 'bg-blue-900/50' : 'hover:bg-zinc-700/50'
+                    }`}
+                  >
+                    <span className="text-xs font-mono text-blue-400 mr-2">
+                      {formatTimestamp(segment.start ?? 0)}
+                    </span>
+                    <span className={`text-sm ${segment.can_skip ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
+                      {segment.text}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-gray-400">No transcript data available.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Flashcards Card - Always Visible Below Transcript */}
+          <div className="bg-zinc-800 shadow rounded-lg p-4 flex-shrink-0"> {/* flex-shrink-0 prevents it from shrinking */}
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-lg font-semibold text-white">Flashcards</h2>
+              {lessonData.flashcards && lessonData.flashcards.length > 1 && (
+                <div className="flex items-center gap-1">
+                  <button onClick={prevFlashcard} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"><ChevronLeft className="w-4 h-4" /></button>
+                  <span className="text-xs text-gray-400">{currentFlashcard + 1} / {lessonData.flashcards.length}</span>
+                  <button onClick={nextFlashcard} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"><ChevronRight className="w-4 h-4" /></button>
+                </div>
+              )}
+            </div>
+            {isLoading ? (
+              <LoadingPulse />
+            ) : lessonData.flashcards && lessonData.flashcards.length > 0 ? (
+              <div 
+                // --- Remove onClick from the main div ---
+                className="bg-zinc-700 p-4 rounded-lg min-h-[100px] relative" // Add relative positioning
+              >
+                <p className="text-sm font-medium text-white mb-2 pr-10"> {/* Add padding-right for button space */}
+                  {lessonData.flashcards[currentFlashcard].question}
+                </p>
+                
+                {/* --- Add Show/Hide Answer Button --- */}
+                <button 
+                  onClick={() => setShowAnswer(!showAnswer)}
+                  className="absolute top-3 right-3 p-1 text-gray-400 hover:text-white rounded hover:bg-zinc-600 transition-colors"
+                  title={showAnswer ? "Hide Answer" : "Show Answer"}
+                >
+                  {showAnswer ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+                {/* --- End Button --- */}
+
+                {showAnswer && (
+                  <p className="text-sm text-gray-300 border-t border-zinc-600 pt-2 mt-2">
+                    {lessonData.flashcards[currentFlashcard].answer}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">No flashcards generated.</p>
+            )}
+          </div>
+
+        </div> 
+      </div> 
     </main>
   )
 }

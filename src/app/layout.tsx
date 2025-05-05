@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "mino",
+  title: "minomize",
   description: "A video shortening tool",
 };
 

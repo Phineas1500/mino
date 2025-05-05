@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, DragEvent, ChangeEvent } from "react" // Import ChangeEvent
 import { Upload, Loader2, Link as LinkIcon, CheckCircle2, XCircle } from "lucide-react" 
-import { compressVideo, shouldCompress } from '../components/videoCompressor'; 
 import { useRouter } from 'next/navigation';
 
 interface FileUploadProps {
@@ -27,7 +26,6 @@ interface ProcessResponse {
 // --- Define more detailed status stages ---
 type ProcessingStage = 
   | 'idle' 
-  | 'compressing' 
   | 'getting_upload_url' 
   | 'uploading_to_s3' 
   | 'initiating_processing' 
@@ -82,7 +80,6 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   const uploadAbortController = useRef<AbortController | null>(null)
   const processAbortController = useRef<AbortController | null>(null)
   const [isDraggingOver, setIsDraggingOver] = useState(false); 
-  // const [compressionProgress, setCompressionProgress] = useState<number | null>(null); // Remove, use progress.percentage
 
   const handleCancel = () => {
     stopPolling(); 
@@ -108,69 +105,10 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
     setProgress({ status: 'uploading', stage: 'idle', message: 'Preparing upload...', percentage: 0 }); 
 
     let fileToUpload: File = selectedFile; 
-    let compressionComplete = false;
-
-    // --- Compression Step ---
-    try {
-      const needsCompressionCheck = await shouldCompress(selectedFile);
-      if (!isMobileDevice() && needsCompressionCheck) { 
-        setProgress(prev => ({ ...prev, stage: 'compressing', message: 'Compressing video (0%)...', percentage: 0 })); 
-        
-        const compressedBlob = await compressVideo(selectedFile, (compProgress) => {
-            // Map compression progress (0-100) to a portion of the overall bar (e.g., 0-30%)
-            const overallPercentage = Math.min(30, Math.round(compProgress * 0.30)); 
-            setProgress(prev => ({ 
-                ...prev, 
-                stage: 'compressing', 
-                message: `Compressing video (${compProgress}%)...`, 
-                percentage: overallPercentage 
-            }));
-        });
-        
-        fileToUpload = new File(
-          [compressedBlob], 
-          // Create a new name to avoid potential conflicts if backend uses original name
-          `compressed-${Date.now()}-${selectedFile.name.split('.').slice(0, -1).join('.')}.mp4`, 
-          { type: 'video/mp4', lastModified: Date.now() } // Use mp4 type
-        );
-        console.log('Compression complete. New file:', fileToUpload.name, 'Size:', (fileToUpload.size / 1024 / 1024).toFixed(2), 'MB');
-        setProgress(prev => ({ 
-            ...prev, 
-            stage: 'getting_upload_url', // Move to next stage
-            message: 'Compression complete. Getting upload URL...', 
-            percentage: 30 // Set percentage for end of compression
-        }));
-        compressionComplete = true;
-      } else {
-         // Log skip reason
-         if (isMobileDevice()) {
-             console.log("Skipping compression: Mobile device detected.");
-         } else if (!needsCompressionCheck) {
-             console.log("Skipping compression: File does not meet criteria (size/type).");
-         }
-         setProgress(prev => ({ 
-             ...prev, 
-             stage: 'getting_upload_url', // Move to next stage
-             message: 'Getting upload URL...', 
-             percentage: 0 // Start percentage if no compression
-         }));
-      }
-    } catch (compressionError) {
-       console.error('Compression failed:', compressionError);
-       setProgress({ 
-           status: 'error', 
-           stage: 'compressing', // Stage where error occurred
-           message: compressionError instanceof Error ? compressionError.message : 'Video compression failed.',
-           percentage: progress.percentage // Keep percentage where it failed
-       });
-       setUploading(false);
-       setUploadGlow(false);
-       return; 
-    } 
 
     // --- Upload Steps ---
     let isConflict = false; 
-    const uploadStartPercentage = compressionComplete ? 30 : 0; // Where the upload phase starts
+    const uploadStartPercentage = 0; // Where the upload phase starts
 
     try {
       uploadAbortController.current = new AbortController();
@@ -468,7 +406,6 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   // --- Helper to generate messages (customize as needed) ---
   const getMessageForStage = (stage: ProcessingStage, percentage: number): string => {
       switch (stage) {
-          case 'compressing': return `Compressing video (${Math.round(percentage / 0.30)}%)...`; // Back-calculate compression %
           case 'getting_upload_url': return 'Getting upload URL...';
           case 'uploading_to_s3': return 'Uploading video...';
           case 'initiating_processing': return 'Initiating processing...';

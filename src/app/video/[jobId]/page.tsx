@@ -9,6 +9,8 @@ import {
   MessageSquare, X // <-- Add MessageSquare and X for chatbot
 } from 'lucide-react'; 
 
+const PI_SERVER = process.env.PI_SERVER || 'http://100.70.34.122:3001'
+
 interface Segment {
   start: number
   end: number
@@ -281,10 +283,12 @@ const ChatbotWindow = ({
   isOpen,
   onClose,
   lessonData, // lessonData prop to be used for future chat logic
+  jobId,      // <-- Add jobId prop
 }: {
   isOpen: boolean;
   onClose: () => void;
   lessonData: LessonData; 
+  jobId: string; // <-- Define jobId prop
 }) => {
   const [messages, setMessages] = useState<{ sender: 'user' | 'bot'; text: string }[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -296,15 +300,40 @@ const ChatbotWindow = ({
 
   useEffect(scrollToBottom, [messages]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => { // <-- Make async
     if (inputValue.trim() === '') return;
     
     const newUserMessage = { sender: 'user' as 'user', text: inputValue };
-    // Placeholder bot response
-    const newBotMessage = { sender: 'bot' as 'bot', text: "Thanks for your question! I'm currently under development. Please check back later for full chat functionality." };
-    
-    setMessages(prevMessages => [...prevMessages, newUserMessage, newBotMessage]);
-    setInputValue('');
+    setMessages(prevMessages => [...prevMessages, newUserMessage]);
+    const currentInput = inputValue;
+    setInputValue(''); // Clear input immediately
+
+    try {
+      // Use the relative path to your Next.js API proxy route
+      // The PI_SERVER variable is no longer directly needed for this specific fetch call
+      const response = await fetch('/api/chat-proxy', { // <-- Use the proxy route
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: currentInput, jobId: jobId }), // <-- Send message and jobId
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "Error sending message. Please try again." }));
+        throw new Error(errorData.message || `API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const newBotMessage = { sender: 'bot' as 'bot', text: data.reply || "Sorry, I couldn't get a response." };
+      setMessages(prevMessages => [...prevMessages, newBotMessage]);
+
+    } catch (error) {
+      console.error("Chatbot API error:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
+      const errorBotMessage = { sender: 'bot' as 'bot', text: `Error: ${errorMessage}` };
+      setMessages(prevMessages => [...prevMessages, errorBotMessage]);
+    }
   };
 
   if (!isOpen) return null;
@@ -968,6 +997,7 @@ export default function VideoJobPage() {
         isOpen={isChatOpen} 
         onClose={() => setIsChatOpen(false)} 
         lessonData={lessonData} 
+        jobId={jobId} // <-- Pass jobId here
       />
     </main>
   )

@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { Roboto_Mono } from "next/font/google";
 import { 
   Play, Zap, ChevronLeft, ChevronRight, Copy, Check, Share2, 
-  LocateFixed, LocateOff, Eye, EyeOff // <-- Add Eye, EyeOff
+  LocateFixed, LocateOff, Eye, EyeOff, // <-- Add Eye, EyeOff
+  MessageSquare, X // <-- Add MessageSquare and X for chatbot
 } from 'lucide-react'; 
 
 interface Segment {
@@ -262,6 +263,114 @@ const VideoPlayer = ({
   ) : null
 }
 
+// NEW: ChatbotFAB component
+const ChatbotFAB = ({ onClick }: { onClick: () => void }) => {
+  return (
+    <button
+      onClick={onClick}
+      title="Open Chatbot"
+      className="fixed bottom-4 right-4 md:bottom-6 md:right-6 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-lg transition-transform hover:scale-110 z-50"
+    >
+      <MessageSquare className="w-6 h-6" />
+    </button>
+  );
+};
+
+// NEW: ChatbotWindow component
+const ChatbotWindow = ({
+  isOpen,
+  onClose,
+  lessonData, // lessonData prop to be used for future chat logic
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  lessonData: LessonData; 
+}) => {
+  const [messages, setMessages] = useState<{ sender: 'user' | 'bot'; text: string }[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(scrollToBottom, [messages]);
+
+  const handleSendMessage = () => {
+    if (inputValue.trim() === '') return;
+    
+    const newUserMessage = { sender: 'user' as 'user', text: inputValue };
+    // Placeholder bot response
+    const newBotMessage = { sender: 'bot' as 'bot', text: "Thanks for your question! I'm currently under development. Please check back later for full chat functionality." };
+    
+    setMessages(prevMessages => [...prevMessages, newUserMessage, newBotMessage]);
+    setInputValue('');
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed bottom-20 right-4 md:right-6 w-80 md:w-96 h-[500px] bg-zinc-800/95 backdrop-blur-sm shadow-xl rounded-lg flex flex-col z-50 border border-zinc-700 overflow-hidden">
+      {/* Header */}
+      <div className="flex justify-between items-center p-3 border-b border-zinc-700 flex-shrink-0">
+        <h3 className="text-md font-semibold text-white">Chat about this Video</h3>
+        <button 
+          onClick={onClose} 
+          className="p-1 text-gray-400 hover:text-white rounded hover:bg-zinc-600"
+          title="Close chat"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Messages Area */}
+      <div className="flex-grow p-3 space-y-3 overflow-y-auto">
+        {messages.length === 0 && (
+            <div className="text-center text-sm text-gray-400 py-4 px-2">
+                Ask me anything about the video content (e.g., "What are the key points?", "Summarize this for me.").
+            </div>
+        )}
+        {messages.map((msg, index) => (
+          <div key={index} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[85%] p-2.5 rounded-lg text-sm shadow ${
+              msg.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-gray-200'
+            }`}>
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input Area */}
+      <div className="p-3 border-t border-zinc-700 flex-shrink-0">
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            placeholder="Ask a question..."
+            className="flex-grow p-2 bg-zinc-700 border border-zinc-600 rounded-md text-sm text-white placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          />
+          <button
+            onClick={handleSendMessage}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+            disabled={inputValue.trim() === ''}
+          >
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function VideoJobPage() { 
   const params = useParams(); 
   const jobId = params.jobId as string; 
@@ -289,6 +398,8 @@ export default function VideoJobPage() {
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for detecting end of user scroll
   const programmaticScroll = useRef(false); 
   const [isCopied, setIsCopied] = useState(false); // State for copy feedback
+
+  const [isChatOpen, setIsChatOpen] = useState(false); // State for chatbot visibility
 
   const handleVideoTimeUpdate = useCallback((time: number) => {
     setCurrentVideoTime(time);
@@ -850,6 +961,14 @@ export default function VideoJobPage() {
 
         </div> 
       </div> 
+
+      {/* Chatbot FAB and Window */}
+      {!isChatOpen && <ChatbotFAB onClick={() => setIsChatOpen(true)} />}
+      <ChatbotWindow 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
+        lessonData={lessonData} 
+      />
     </main>
   )
 }

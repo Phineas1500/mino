@@ -482,21 +482,21 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
   // --- End ADD ---
 
   return (
-    <div className="flex flex-col items-center gap-8 w-full">
-      {uploadGlow && (
-        <div className="absolute inset-0 flex items-center justify-center -z-10 pointer-events-none">
-          <div className="w-[500%] h-[150%] rounded-full bg-blue-300/30 blur-3xl scale-0 animate-[glow_1s_ease-out]"></div>
-        </div>
-      )}
-      {/* --- Add drag event handlers to this div --- */}
+    <div className="flex flex-col items-center gap-8 w-full relative">
+      {/* Main Drag and Drop Area - Stays in normal flow */}
       <div 
         className={`relative w-full max-w-4xl bg-black aspect-[36/9] border border-muted-foreground/20 hover:border-muted-foreground/40 transition-colors rounded-lg p-8 ${
-          isDraggingOver ? 'border-blue-500 border-dashed ring-2 ring-blue-500 ring-offset-2 ring-offset-black' : '' // Add visual feedback class
+          isDraggingOver ? 'border-blue-500 border-dashed ring-2 ring-blue-500 ring-offset-2 ring-offset-black' : ''
         }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {uploadGlow && (
+          <div className="absolute inset-0 flex items-center justify-center -z-10 pointer-events-none">
+            <div className="w-[500%] h-[150%] rounded-full bg-blue-300/30 blur-3xl scale-0 animate-[glow_1s_ease-out]"></div>
+          </div>
+        )}
         <input
           type="file"
           id="video-upload"
@@ -579,37 +579,37 @@ export function FileUpload({ onFileSelect, onProcessingComplete, accept = "video
         )}
       </div>
 
-      {/* "OR" Separator */}
-      <div className="flex items-center w-full max-w-sm">
-        <div className="flex-grow border-t border-muted-foreground/30"></div>
-        <span className="flex-shrink mx-4 text-muted-foreground text-sm">OR</span>
-        <div className="flex-grow border-t border-muted-foreground/30"></div>
-      </div>
-
-      {/* YouTube URL Input Area */}
-      <div className="w-full max-w-xl flex gap-2">
-        <div className="relative flex-grow">
-           <LinkIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-           <input
-             type="url"
-             placeholder="Paste YouTube video link here"
-             value={youtubeUrl}
-             onChange={(e) => setYoutubeUrl(e.target.value)}
-             disabled={uploading} // Disable while processing
-             className="w-full pl-10 pr-4 py-2 rounded-md border border-muted-foreground/30 bg-black focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
-           />
+      {/* Container for elements below the drag-and-drop box - Absolutely Positioned */}
+      <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-full flex flex-col items-center gap-4 mt-6"> {/* Adjust mt-6 (margin-top) for spacing */}
+        {/* "OR" Separator */}
+        <div className="flex items-center w-full max-w-sm">
+          <div className="flex-grow border-t border-muted-foreground/30"></div>
+          <span className="flex-shrink mx-4 text-muted-foreground text-sm">OR</span>
+          <div className="flex-grow border-t border-muted-foreground/30"></div>
         </div>
-        <button
-          onClick={handleUrlSubmit}
-          disabled={uploading || !youtubeUrl} // Disable if processing or URL is empty
-          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          Process Link
-        </button>
-      </div>
 
-      {/* ... Remove Processed Video Preview if not needed on upload page ... */}
-      {/* {processedUrl && progress.status === 'done' && ( ... )} */}
+        {/* YouTube URL Input Area */}
+        <div className="w-full max-w-xl flex gap-2">
+          <div className="relative flex-grow">
+             <LinkIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+             <input
+               type="url"
+               placeholder="Paste YouTube video link here"
+               value={youtubeUrl}
+               onChange={(e) => setYoutubeUrl(e.target.value)}
+               disabled={uploading} // Disable while processing
+               className="w-full pl-10 pr-4 py-2 rounded-md border border-muted-foreground/30 bg-black focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm"
+             />
+          </div>
+          <button
+            onClick={handleUrlSubmit}
+            disabled={uploading || !youtubeUrl} // Disable if processing or URL is empty
+            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Process Link
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

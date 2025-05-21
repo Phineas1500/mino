@@ -816,7 +816,7 @@ export default function VideoJobPage() {
         {/* Use flex-basis for percentage-like width, min-w-0 prevents overflow issues */}
         <div className="flex flex-col lg:flex-[7] min-w-0 space-y-4"> 
           {/* Video Player Area */}
-          <div className="sticky top-2 md:top-4 z-10"> {/* Make video player sticky */}
+          <div className=""> {/* Make video player not sticky */}
             <div className="flex justify-between items-center mb-2 px-1"> {/* Less margin */}
               {/* Title can be removed or kept minimal */}
               {/* <h1 className="text-xl font-bold">Video Lesson</h1> */}

@@ -732,11 +732,32 @@ export default function VideoJobPage() {
     try {
       await navigator.clipboard.writeText(urlToCopy);
       setIsCopied(true);
-      console.log('Page URL copied to clipboard:', urlToCopy);
+      console.log('Page URL copied to clipboard via navigator.clipboard:', urlToCopy);
       setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
     } catch (err) {
-      console.error('Failed to copy URL:', err);
-      // Optionally show an error message to the user
+      console.warn('navigator.clipboard.writeText failed, trying fallback:', err);
+      // Fallback mechanism
+      const textarea = document.createElement('textarea');
+      textarea.value = urlToCopy;
+      textarea.style.position = 'fixed'; // Prevent scrolling to bottom of page in MS Edge.
+      textarea.style.left = '-9999px'; // Move Cursors out of sight.
+      document.body.appendChild(textarea);
+      try {
+        textarea.select();
+        const successful = document.execCommand('copy');
+        if (successful) {
+          setIsCopied(true);
+          console.log('Page URL copied to clipboard via fallback method:', urlToCopy);
+          setTimeout(() => setIsCopied(false), 2000); // Reset after 2 seconds
+        } else {
+          throw new Error('document.execCommand("copy") returned false');
+        }
+      } catch (fallbackErr) {
+        console.error('Fallback copy method failed:', fallbackErr);
+        alert('Failed to copy URL. Please copy the link manually from the address bar.');
+      } finally {
+        document.body.removeChild(textarea);
+      }
     }
   };
   // --- End Add ---

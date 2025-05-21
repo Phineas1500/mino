@@ -954,6 +954,9 @@ export default function VideoJobPage() {
                     <span className="text-xs font-mono text-blue-400 mr-2">
                       {formatTimestamp(segment.start ?? 0)}
                     </span>
+                    {segment.playback_speed && segment.playback_speed !== 1 && (
+                      <span className="text-xs text-teal-400 mr-2">{segment.playback_speed}x</span>
+                    )}
                     <span className={`text-sm ${segment.can_skip ? 'text-gray-500 line-through' : 'text-gray-200'}`}>
                       {segment.text}
                     </span>

@@ -6,8 +6,11 @@ import { Roboto_Mono } from "next/font/google";
 import { 
   Play, Zap, ChevronLeft, ChevronRight, Copy, Check, Share2, 
   LocateFixed, LocateOff, Eye, EyeOff, // <-- Add Eye, EyeOff
-  MessageSquare, X // <-- Add MessageSquare and X for chatbot
+  MessageSquare, X, Download // <-- Add Download icon for PDF export
 } from 'lucide-react'; 
+// PDF generation imports
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const PI_SERVER = process.env.PI_SERVER || 'http://100.70.34.122:3001'
 
@@ -762,6 +765,72 @@ export default function VideoJobPage() {
   };
   // --- End Add ---
 
+  // --- Add PDF Export Function ---
+  const exportFlashcardsToPDF = () => {
+    if (!lessonData.flashcards || lessonData.flashcards.length === 0) {
+      alert('No flashcards available to export.');
+      return;
+    }
+
+    try {
+      const doc = new jsPDF();
+      
+      // Add title
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Video Flashcards', 20, 20);
+      
+      // Add date
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const date = new Date().toLocaleDateString();
+      doc.text(`Generated on: ${date}`, 20, 30);
+      
+      // Prepare table data
+      const tableData = lessonData.flashcards.map((flashcard, index) => [
+        flashcard.question,
+        flashcard.answer
+      ]);
+      
+      // Generate table
+      autoTable(doc, {
+        head: [['Question', 'Answer']],
+        body: tableData,
+        startY: 40,
+        styles: {
+          fontSize: 10,
+          cellPadding: 8,
+          valign: 'top',
+          overflow: 'linebreak',
+        },
+        headStyles: {
+          fillColor: [59, 130, 246], // Blue color
+          textColor: 255,
+          fontStyle: 'bold',
+        },
+        columnStyles: {
+          0: { cellWidth: 80 }, // Question column
+          1: { cellWidth: 80 }, // Answer column
+        },
+        theme: 'striped',
+        alternateRowStyles: {
+          fillColor: [245, 245, 245],
+        },
+        margin: { top: 40, right: 20, bottom: 20, left: 20 },
+      });
+      
+      // Save the PDF
+      const filename = `flashcards_${jobId}_${date.replace(/\//g, '-')}.pdf`;
+      doc.save(filename);
+      
+      console.log(`PDF exported successfully: ${filename}`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    }
+  };
+  // --- End PDF Export Function ---
+
   if (isLoading) {
     return (
       <main className="flex flex-col items-center justify-center min-h-screen p-6">
@@ -972,13 +1041,26 @@ export default function VideoJobPage() {
           <div className="bg-zinc-800 shadow rounded-lg p-4 flex-shrink-0"> {/* flex-shrink-0 prevents it from shrinking */}
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-lg font-semibold text-white">Flashcards</h2>
-              {lessonData.flashcards && lessonData.flashcards.length > 1 && (
-                <div className="flex items-center gap-1">
-                  <button onClick={prevFlashcard} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"><ChevronLeft className="w-4 h-4" /></button>
-                  <span className="text-xs text-gray-400">{currentFlashcard + 1} / {lessonData.flashcards.length}</span>
-                  <button onClick={nextFlashcard} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"><ChevronRight className="w-4 h-4" /></button>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                {/* PDF Export Button */}
+                {lessonData.flashcards && lessonData.flashcards.length > 0 && (
+                  <button
+                    onClick={exportFlashcardsToPDF}
+                    title="Export to PDF"
+                    className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                )}
+                {/* Navigation Controls */}
+                {lessonData.flashcards && lessonData.flashcards.length > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button onClick={prevFlashcard} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"><ChevronLeft className="w-4 h-4" /></button>
+                    <span className="text-xs text-gray-400">{currentFlashcard + 1} / {lessonData.flashcards.length}</span>
+                    <button onClick={nextFlashcard} className="p-1.5 text-gray-400 hover:text-white rounded-lg hover:bg-zinc-700"><ChevronRight className="w-4 h-4" /></button>
+                  </div>
+                )}
+              </div>
             </div>
             {isLoading ? (
               <LoadingPulse />

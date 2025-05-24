@@ -16,6 +16,8 @@
     "@vercel/blob": "^0.27.1",
     "axios": "^1.7.9",
     "encoding": "^0.1.13",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
     "lucide-react": "^0.475.0",
     "next": "15.1.7",
     "react": "^19.0.0",

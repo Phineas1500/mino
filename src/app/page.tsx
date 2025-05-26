@@ -41,7 +41,7 @@ export default function HomePage() {
         <div className="text-4xl md:text-7xl font-light tracking-tighter text-muted-foreground">)</div>
       </div>
       <div className="w-full text-center text-sm text-muted-foreground mt-8">
-        New to minomize? <a href="https://minomize.com/video/84fd0ac5-a7de-41b2-a0ec-25b7fb141278" className="underline hover:text-foreground transition-colors">Check out an example video page.</a>
+        New to minomize? <a href="https://minomize.com/video/b9fd274d-a9c0-4218-8689-9c226e6764bf" className="underline hover:text-foreground transition-colors">Check out an example video page.</a>
       </div>
     </main>
   )

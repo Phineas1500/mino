@@ -12,7 +12,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'fileKey is required' }, { status: 400 });
     }
 
-    const backendUrl = `${process.env.PI_SERVER}/process/s3-video`; // Your backend endpoint
+    const backendUrl = `${PI_SERVER}/process/s3-video`; // Your backend endpoint
     console.log(`Forwarding process request to backend: ${backendUrl} for key: ${fileKey}`);
 
     const backendResponse = await fetch(backendUrl, {

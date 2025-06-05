@@ -1,6 +1,8 @@
 // filepath: src/app/api/process-status/route.ts
 import { NextResponse, NextRequest } from 'next/server';
 
+const PI_SERVER = process.env.PI_SERVER || 'http://100.70.34.122:3001'
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -10,7 +12,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'jobId query parameter is required' }, { status: 400 });
     }
 
-    const backendUrl = `${process.env.PI_SERVER}/process/status/${jobId}`; // Your backend status endpoint
+    const backendUrl = `${PI_SERVER}/process/status/${jobId}`; // Your backend status endpoint
     console.log(`Polling backend status: ${backendUrl}`);
 
     const backendResponse = await fetch(backendUrl, {

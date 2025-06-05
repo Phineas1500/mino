@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+const PI_SERVER = process.env.PI_SERVER || 'http://100.70.34.122:3001'
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -14,7 +16,7 @@ export async function POST(req: Request) {
        return NextResponse.json({ error: 'Invalid YouTube URL format' }, { status: 400 });
     }
 
-    const backendUrl = `${process.env.PI_SERVER}/process/youtube-url`; // Your NEW backend endpoint
+    const backendUrl = `${PI_SERVER}/process/youtube-url`; // Your NEW backend endpoint
     console.log(`Forwarding YouTube URL request to backend: ${backendUrl}`);
 
     const backendResponse = await fetch(backendUrl, {

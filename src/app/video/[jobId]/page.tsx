@@ -743,7 +743,7 @@ export default function VideoJobPage() {
       const textarea = document.createElement('textarea');
       textarea.value = urlToCopy;
       textarea.style.position = 'fixed'; // Prevent scrolling to bottom of page in MS Edge.
-      textarea.style.left = '-9999px'; // Move Cursors out of sight.
+      textarea.style.left = '-9999px'; // Move cursor out of sight.
       document.body.appendChild(textarea);
       try {
         textarea.select();

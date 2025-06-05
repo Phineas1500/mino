@@ -25,7 +25,7 @@ min() transforms how you consume educational videos:
 ## How we built it
 
 ### Frontend
-- Next.js 14 with App Router
+- Next.js 15 with App Router
 - TypeScript for type safety
 - TailwindCSS for styling
 - Lucide icons for UI elements
@@ -86,7 +86,7 @@ min() transforms how you consume educational videos:
 ## Tech Stack
 
 ### Frontend
-- Next.js 14
+- Next.js 15
 - TypeScript
 - TailwindCSS
 - Lucide Icons
